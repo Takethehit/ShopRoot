@@ -9,15 +9,16 @@ for(const l of p.lines){const i=itemById(l.itemId);if(!i||!(l.qty>0))return 0;m=
 return m===Infinity?0:m;
 }
 function segHeader(){
-return `<h1>Stock</h1><div class="seg"><button class="${stockTab==="items"?"on":""}" onclick="setStockTab('items')">Items</button><button class="${stockTab==="products"?"on":""}" onclick="setStockTab('products')">Products</button></div>`;
+return `<h1>Stock</h1><div class="seg"><button class="${stockTab==="items"?"on":""}" onclick="setStockTab('items')">Items</button><button class="${stockTab==="products"?"on":""}" onclick="setStockTab('products')">Recipes</button></div>`;
 }
 const _stk=screens.stock;
 screens.stock=()=>stockTab==="products"?productsScreen():_stk();
+const recipeProds=()=>{const its=items();return prods().filter(p=>!its.some(i=>isDirect(p,i)))};
 function productsScreen(){
-const list=prods();
-const h=segHeader()+`<button class="btn green" onclick="prodForm()">+ Add product</button><div class="gap"></div>`;
+const list=recipeProds();
+const h=segHeader()+`<p class="sub">For things made from several items, like Jollof rice. Things you sell as they are (like Coke) are put on sale from the Items tab.</p><button class="btn green" onclick="prodForm()">+ Add recipe</button><div class="gap"></div>`;
 if(!items().length)return h+`<div class="card"><p class="sub" style="margin:0">Add your items first (ingredients or things you sell), then make products from them.</p></div>`;
-if(!list.length)return h+`<div class="card"><p class="sub" style="margin:0">No products yet. A product is what you sell, like Jollof rice or Bottled water.</p></div>`;
+if(!list.length)return h+`<div class="card"><p class="sub" style="margin:0">No recipes yet. Make one when you sell something cooked or mixed from several items.</p></div>`;
 return h+list.map(prodCard).join("");
 }
 function prodCard(p){
@@ -30,7 +31,7 @@ return `<div class="card"><div class="it"><span class="nm">${pic(p.name)} ${esc(
 let draft=null;
 const defQty=i=>i.unit==="piece"?1:"";
 function prodForm(id){
-if(!items().length)return toast("Add items first in the Items tab");
+if(!items().length)return toast("Add your items first");
 const p=id?prods().find(x=>x.id===id):null;
 draft=p?JSON.parse(JSON.stringify(p)):{id:"",name:"",price:"",lines:[{itemId:items()[0].id,qty:defQty(items()[0])}]};
 drawForm();
@@ -47,14 +48,14 @@ const it=itemById(l.itemId)||its[0];
 const u=unitText(it);
 return `<div class="card" style="padding:12px;box-shadow:none;border:2px solid #e7d8f7"><select id="l_i${k}" onchange="lineChanged()">${its.map(i=>`<option value="${i.id}" ${i.id===it.id?"selected":""}>${esc(i.name)} (${unitText(i)})</option>`).join("")}</select><input id="l_q${k}" type="number" inputmode="decimal" placeholder="Amount used, in ${u}" value="${l.qty}" oninput="costPreview()"><button class="btn sm redline" onclick="rmLine(${k})">Remove</button></div>`;
 }).join("");
-sheet(`<h1>${draft.id?"Edit product":"Add product"}</h1>
+sheet(`<h1>${draft.id?"Edit recipe":"Add recipe"}</h1>
 <label>Name</label><input id="p_name" value="${esc(draft.name)}" placeholder="e.g. Jollof rice">
 <label>Selling price (₦)</label><input id="p_price" type="number" inputmode="decimal" value="${draft.price}" placeholder="e.g. 2500" oninput="costPreview()">
 <label>What is used for ONE sale</label>${rows}
 <button class="btn sm ghost" onclick="addLine()">+ Add another item</button>
 <div class="card" id="prev" style="margin-top:14px"></div>
-<button class="btn green" onclick="saveProd()">Save product</button><div class="gap"></div>
-${draft.id?`<button class="btn redline" onclick="confirmProdDelete('${draft.id}')">Delete product</button><div class="gap"></div>`:""}
+<button class="btn green" onclick="saveProd()">Save</button><div class="gap"></div>
+${draft.id?`<button class="btn redline" onclick="confirmProdDelete('${draft.id}')">Delete recipe</button><div class="gap"></div>`:""}
 <button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
 costPreview();
 }
@@ -87,10 +88,10 @@ sheet(`<h1>Delete ${esc(p.name)}?</h1><p class="sub">This cannot be undone.</p><
 function deleteProd(id){DB.set("products",prods().filter(x=>x.id!==id));toast("Deleted");render()}
 const _cd=confirmDelete;
 confirmDelete=function(id){
-const used=prods().filter(p=>p.lines.some(l=>l.itemId===id));
+const it=items().find(x=>x.id===id);const used=prods().filter(p=>p.lines.some(l=>l.itemId===id)&&!isDirect(p,it));
 if(used.length){
 closeSheet();
-return sheet(`<h1>Can’t delete yet</h1><p class="sub">This item is used in: ${used.map(p=>esc(p.name)).join(", ")}. Remove it from those products first.</p><button class="btn ghost" onclick="closeSheet()">OK</button>`);
+return sheet(`<h1>Can’t delete yet</h1><p class="sub">This item is used in these recipes: ${used.map(p=>esc(p.name)).join(", ")}. Remove it from them first.</p><button class="btn ghost" onclick="closeSheet()">OK</button>`);
 }
 _cd(id);
 };
