@@ -5,12 +5,15 @@ const store={
 get(k,d){try{return localStorage.getItem(k)||d}catch(e){return d}},
 set(k,v){try{localStorage.setItem(k,v)}catch(e){}}
 };
+const plural=w=>/s$/i.test(w)?w:(/(x|ch|sh)$/i.test(w)?w+"es":w+"s");
+const unitText=i=>i.unit==="piece"?plural(i.label||"piece"):i.unit;
 function fmt(i,q){
 q=Number(q)||0;
 const r=n=>String(Math.round(n*100)/100);
 if(i.unit==="g")return q>=1000?r(q/1000)+" kg":r(q)+" g";
 if(i.unit==="ml")return q>=1000?r(q/1000)+" L":r(q)+" ml";
-return r(q)+(q===1?" piece":" pieces");
+const w=i.label||"piece";
+return r(q)+" "+(q===1?w:plural(w));
 }
 const isLow=i=>i.stock<=i.min;
 function sheet(h){$("#sheet").innerHTML='<div class="back" onclick="closeSheet()"></div><div class="panel">'+h+'</div>';$("#sheet").classList.add("open")}
