@@ -1,5 +1,21 @@
 let stockTab="items",packOpen=false,prevUnit="piece";
-const UNITS=[["piece","Count (pieces, bottles, bags, cartons...)"],["g","Weight (grams / kg)"],["ml","Liquid (ml / litres)"]];
+const LABELS=["Piece","Carton","Bag","Box","Bottle","Pack","Sachet","Crate","Dozen","Tin","Sack","Bundle","Other"];
+const WASTE=["Spoiled","Expired","Spilled","Broken","Damaged","Lost","Used at home","Other"];
+const RESTOCK=["From supplier","From market","Gift","Other"];
+const KINDS=[["piece","📦","Count","pieces, bags, bottles"],["g","⚖️","Weight","grams / kg"],["ml","🧴","Liquid","ml / litres"]];
+function pills(g,opts,cur){
+return `<input type="hidden" id="${g}" value="${esc(cur||"")}"><div class="pills" id="${g}_p">${opts.map(o=>`<button class="pill ${o===cur?"on":""}" onclick="pickPill('${g}',this)">${o}</button>`).join("")}</div><input id="${g}_o" placeholder="Type it here" style="display:${cur==="Other"?"block":"none"}">`;
+}
+function pickPill(g,btn){
+document.querySelectorAll("#"+g+"_p .pill").forEach(b=>b.classList.remove("on"));
+btn.classList.add("on");$("#"+g).value=btn.textContent;
+$("#"+g+"_o").style.display=btn.textContent==="Other"?"block":"none";
+}
+function pillVal(g){const v=$("#"+g).value;return v==="Other"?$("#"+g+"_o").value.trim():v}
+function kindTiles(cur){
+return `<input type="hidden" id="f_unit" value="${cur}"><div class="paygrid">${KINDS.map(k=>`<button class="paytile ${k[0]===cur?"on":""}" id="k_${k[0]}" onclick="setKind('${k[0]}')"><span style="font-size:28px">${k[1]}</span>${k[2]}<span class="small" style="font-size:11px;font-weight:600">${k[3]}</span></button>`).join("")}</div>`;
+}
+function setKind(k){KINDS.forEach(x=>$("#k_"+x[0]).classList.toggle("on",x[0]===k));$("#f_unit").value=k;unitHint(true)}
 const items=()=>DB.get("items",[]);
 const moves=()=>DB.get("moves",[]);
 const isDirect=(p,i,name)=>p.item===i.id||(p.lines.length===1&&p.lines[0].itemId===i.id&&p.lines[0].qty===1&&p.name===(name||i.name));
@@ -69,11 +85,15 @@ function showPack(){packOpen=true;unitHint(false)}
 function itemForm(id){
 const i=id?items().find(x=>x.id===id):{name:"",unit:"piece",label:"",packSize:1,packPrice:"",stock:"",min:""};
 const dp=id&&i.unit==="piece"?directOf(i):null;
+const cap=t=>t?t.charAt(0).toUpperCase()+t.slice(1):"";
+const lab=cap(i.label||"piece");
+const known=LABELS.includes(lab)&&lab!=="Other";
+const labCur=known?lab:"Other";
 prevUnit=i.unit;packOpen=i.unit==="piece"&&Number(i.packSize)!==1;
 sheet(`<h1>${id?"Edit item":"Add item"}</h1>
 <label>Name</label><input id="f_name" value="${esc(i.name)}" placeholder="e.g. Coke, Battery, Rice">
-<label>How do you count it?</label><select id="f_unit" onchange="unitHint(true)">${UNITS.map(u=>`<option value="${u[0]}" ${u[0]===i.unit?"selected":""}>${u[1]}</option>`).join("")}</select>
-<div id="labelBox"><label>What do you call one? (optional)</label><input id="f_label" value="${esc(i.label||"")}" placeholder="piece, bottle, bag, carton, sachet"></div>
+<label>How do you count it?</label>${kindTiles(i.unit)}
+<div id="labelBox"><label>What do you call one?</label>${pills("f_label",LABELS,labCur)}</div>
 <div id="packBox"><label>How many do you get in one pack?</label><input id="f_pack" type="number" inputmode="decimal" value="${i.packSize}"><p class="small" id="hint" style="margin:-4px 0 10px"></p></div>
 <button class="btn sm ghost" id="packLink" onclick="showPack()" style="margin-bottom:10px">I buy it in packs (crate, carton, dozen)</button>
 <label id="priceLabel">What do you pay for one? (₦)</label><input id="f_price" type="number" inputmode="decimal" value="${i.packPrice}" placeholder="e.g. 2500">
@@ -85,10 +105,11 @@ sheet(`<h1>${id?"Edit item":"Add item"}</h1>
 ${id?`<button class="btn redline" onclick="confirmDelete('${id}')">Delete item</button><div class="gap"></div>`:""}
 <button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
 unitHint(false);
+if(!known){$("#f_label_o").value=i.label||"";$("#f_label_o").style.display="block"}
 }
 function saveItem(id){
 const name=$("#f_name").value.trim(),unit=$("#f_unit").value;
-const label=unit==="piece"?($("#f_label").value.trim()||"piece"):"";
+const label=unit==="piece"?(pillVal("f_label").toLowerCase()||"piece"):"";
 const packSize=parseFloat($("#f_pack").value),packPrice=parseFloat($("#f_price").value);
 const stock=parseFloat($("#f_stock").value)||0,min=parseFloat($("#f_min").value)||0;
 if(!name)return toast("Please type the item name");
@@ -117,14 +138,14 @@ function moveForm(id,type){
 const i=items().find(x=>x.id===id),w=type==="waste";
 sheet(`<h1>${w?"Record waste":"Restock"}: ${esc(i.name)}</h1><p class="sub">Now: ${fmt(i,i.stock)}</p>
 <label>Amount (${unitText(i)})</label><input id="m_amt" type="number" inputmode="decimal" placeholder="0">
-<label>${w?"Reason (required)":"Note (optional)"}</label><input id="m_note" placeholder="${w?"e.g. spoiled, spilled":"e.g. bought from market"}">
+<label>${w?"Why? (tap one)":"Where from? (optional)"}</label>${pills("m_why",w?WASTE:RESTOCK,"")}
 <button class="btn ${w?"red":"green"}" onclick="saveMove('${id}','${type}')">${w?"Save waste":"Add stock"}</button><div class="gap"></div>
 <button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
 }
 function saveMove(id,type){
-const amt=parseFloat($("#m_amt").value),note=$("#m_note").value.trim();
+const amt=parseFloat($("#m_amt").value),note=pillVal("m_why");
 if(!(amt>0))return toast("Type an amount more than 0");
-if(type==="waste"&&!note)return toast("Please type a reason");
+if(type==="waste"&&!note)return toast("Please tap the reason");
 const list=items(),i=list.find(x=>x.id===id);
 if(type==="waste"&&amt>i.stock)return toast("That is more than you have in stock");
 const delta=type==="waste"?-amt:amt;
