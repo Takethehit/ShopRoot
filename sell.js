@@ -31,11 +31,11 @@ refreshSell();
 }
 function refreshSell(){if(current==="sell"){$("#grid").innerHTML=gridHTML();$("#order").innerHTML=orderHTML()}}
 function setSq(v){sq=v;$("#grid").innerHTML=gridHTML()}
-function openProducts(){stockTab="products";go("stock")}
+function openProducts(){stockTab="items";go("stock")}
 function pay(){toast("Payment confirmation comes in the next piece")}
 function gridHTML(){
 const list=prods();
-if(!list.length)return `<div class="card" style="grid-column:1/-1"><p class="sub" style="margin:0 0 12px">No products yet. Add your items first, then make your products.</p><button class="btn" onclick="openProducts()">Go to Stock</button></div>`;
+if(!list.length)return `<div class="card" style="grid-column:1/-1"><p class="sub" style="margin:0 0 12px">Nothing to sell yet. Add an item in Stock and put it on sale.</p><button class="btn" onclick="openProducts()">Go to Stock</button></div>`;
 const q=sq.toLowerCase();
 const f=list.filter(p=>p.name.toLowerCase().includes(q));
 if(!f.length)return `<p class="sub">No product found</p>`;
