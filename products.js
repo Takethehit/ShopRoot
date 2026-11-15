@@ -28,10 +28,11 @@ const lines=p.lines.map(l=>{const i=itemById(l.itemId);return i?fmt(i,l.qty)+" "
 return `<div class="card"><div class="it"><span class="nm">${pic(p.name)} ${esc(p.name)}${tag}</span><span class="big">${naira(p.price)}</span></div><p class="small" style="margin:0 0 6px">${lines}</p><p class="small" style="margin:0 0 12px">Cost ${naira(c)} · Profit <b style="color:${pr>=0?"var(--green)":"var(--red)"}">${naira(pr)}</b> · ${m}% margin</p><div class="row"><button class="btn sm ghost" onclick="prodForm('${p.id}')">Edit</button></div></div>`;
 }
 let draft=null;
+const defQty=i=>i.unit==="piece"?1:"";
 function prodForm(id){
 if(!items().length)return toast("Add items first in the Items tab");
 const p=id?prods().find(x=>x.id===id):null;
-draft=p?JSON.parse(JSON.stringify(p)):{id:"",name:"",price:"",lines:[{itemId:items()[0].id,qty:""}]};
+draft=p?JSON.parse(JSON.stringify(p)):{id:"",name:"",price:"",lines:[{itemId:items()[0].id,qty:defQty(items()[0])}]};
 drawForm();
 }
 function readDraft(){
@@ -43,8 +44,8 @@ function drawForm(){
 const its=items();
 const rows=draft.lines.map((l,k)=>{
 const it=itemById(l.itemId)||its[0];
-const u=it.unit==="piece"?"pieces":it.unit;
-return `<div class="card" style="padding:12px;box-shadow:none;border:2px solid #e7d8f7"><select id="l_i${k}" onchange="lineChanged()">${its.map(i=>`<option value="${i.id}" ${i.id===it.id?"selected":""}>${esc(i.name)} (${i.unit==="piece"?"pieces":i.unit})</option>`).join("")}</select><input id="l_q${k}" type="number" inputmode="decimal" placeholder="Amount used, in ${u}" value="${l.qty}" oninput="costPreview()"><button class="btn sm redline" onclick="rmLine(${k})">Remove</button></div>`;
+const u=unitText(it);
+return `<div class="card" style="padding:12px;box-shadow:none;border:2px solid #e7d8f7"><select id="l_i${k}" onchange="lineChanged()">${its.map(i=>`<option value="${i.id}" ${i.id===it.id?"selected":""}>${esc(i.name)} (${unitText(i)})</option>`).join("")}</select><input id="l_q${k}" type="number" inputmode="decimal" placeholder="Amount used, in ${u}" value="${l.qty}" oninput="costPreview()"><button class="btn sm redline" onclick="rmLine(${k})">Remove</button></div>`;
 }).join("");
 sheet(`<h1>${draft.id?"Edit product":"Add product"}</h1>
 <label>Name</label><input id="p_name" value="${esc(draft.name)}" placeholder="e.g. Jollof rice">
@@ -58,7 +59,7 @@ ${draft.id?`<button class="btn redline" onclick="confirmProdDelete('${draft.id}'
 costPreview();
 }
 function lineChanged(){readDraft();drawForm()}
-function addLine(){readDraft();draft.lines.push({itemId:items()[0].id,qty:""});drawForm()}
+function addLine(){readDraft();draft.lines.push({itemId:items()[0].id,qty:defQty(items()[0])});drawForm()}
 function rmLine(k){readDraft();if(draft.lines.length<2)return toast("A product needs at least one item");draft.lines.splice(k,1);drawForm()}
 function costPreview(){
 const price=parseFloat($("#p_price").value)||0;
