@@ -22,7 +22,7 @@ document.head.insertAdjacentHTML("beforeend",`<style>
 @keyframes grow{to{transform:translate(-50%,-50%) scale(1)}}
 @keyframes pop{0%{transform:translate(-50%,-50%) scale(0)}70%{transform:translate(-50%,-50%) scale(1.15)}100%{transform:translate(-50%,-50%) scale(1)}}
 .dsh{border-top:2px dashed #cbb8e6;margin:12px 0}
-.obar{position:sticky;bottom:0;margin-top:14px;background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff;border-radius:22px;padding:14px 14px 14px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px #4a237066}
+.obar{position:fixed;left:14px;right:14px;bottom:calc(80px + env(safe-area-inset-bottom));z-index:15;background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff;border-radius:22px;padding:14px 14px 14px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px #4a237066}
 .obar .t{flex:1;line-height:1.25}
 .obar .t span{font-size:13px;opacity:.85;display:block}
 .obar .t b{font-size:24px}
@@ -38,6 +38,7 @@ document.head.insertAdjacentHTML("beforeend",`<style>
 .op>b{font-size:19px}
 .bank{background:#F4EEFB;border-radius:16px;padding:14px;margin:8px 0}
 .acct{font-size:28px;font-weight:900;letter-spacing:2px;font-family:monospace}
+#toast{bottom:calc(168px + env(safe-area-inset-bottom))}
 </style>`);
 let cart=[],sq="",disc={t:"amt",v:0},dTarget="order",payType="",viewSale=null,viewOwner=false,receiptBack="sell";
 const sameDay=(iso,d)=>new Date(iso).toDateString()===d.toDateString();
@@ -103,7 +104,7 @@ function orderHTML(){
 if(!cart.length)return "";
 return `<div class="obar"><div class="t"><span>${cartCount()} ${cartCount()===1?"item":"items"} in order</span><b>${naira(grandTotal())}</b></div><button onclick="reviewOrder()">View order</button></div>`;
 }
-screens.sell=()=>`<h1>New Sale</h1><p class="sub">Tap + Add on a product to start the customer’s order.</p><input id="q" placeholder="Search products..." value="${esc(sq)}" oninput="setSq(this.value)"><div class="grid" id="grid">${gridHTML()}</div><div id="order">${orderHTML()}</div>`;
+screens.sell=()=>`<h1>New Sale</h1><p class="sub">Tap + Add on a product to start the customer’s order.</p><input id="q" placeholder="Search products..." value="${esc(sq)}" oninput="setSq(this.value)"><div class="grid" id="grid">${gridHTML()}</div><div style="height:100px"></div><div id="order">${orderHTML()}</div>`;
 
 function reviewOrder(){
 if(!cart.length)return toast("Add products first");
@@ -148,7 +149,7 @@ const v=parseFloat($("#d_val").value)||0,cur=curDisc(),base=discBase(),d=discOf(
 let below=false;
 if(dTarget==="order")below=(afterLines()-discOf(cur.t,v,afterLines()))<cartCost();
 else{const c=cart.find(x=>x.pid===dTarget),p=prodOf(c.pid);below=nt<costOf(p)*c.qty}
-$("#d_prev").innerHTML=`<div class="it"><span>Discount</span><b>${naira(d)}</b></div><div class="it" style="margin:0"><span>New price</span><b>${naira(nt)}</b></div>`+(below?`<p class="small" style="color:var(--red);font-weight:700;margin:8px 0 0">This price is below what you paid for it.</p>`:"");
+$("#d_prev").innerHTML=`<div class="it"><span>Discount</span><b>${naira(d)}</b></div><div class="it" style="margin:0"><span>New price</span><b>${naira(nt)}</b></div>`+(below&&isOwner()?`<p class="small" style="color:var(--red);font-weight:700;margin:8px 0 0">This price is below what you paid for it.</p>`:"");
 }
 function applyDisc(){
 const v=parseFloat($("#d_val").value)||0,cur=curDisc();
