@@ -2,6 +2,9 @@ document.head.insertAdjacentHTML("beforeend",`<style>
 .paygrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
 .paytile{border:2px solid #d9c8ee;background:#fff;color:var(--grape);border-radius:16px;min-height:84px;font-size:16px;font-weight:800;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 .paytile.on{border-color:var(--green);background:#e8f8ee}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.pill{min-height:44px;padding:0 16px;border-radius:999px;border:2px solid #d9c8ee;background:#fff;color:var(--grape);font-size:15px;font-weight:700}
+.pill.on{background:var(--grape);border-color:var(--grape);color:#fff}
 .chk{display:flex;gap:12px;align-items:center;font-weight:600;margin:10px 0}
 .slide{position:relative;height:64px;border-radius:32px;background:#16a34a;overflow:hidden;margin-top:14px;user-select:none}
 .slide span{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;pointer-events:none;padding-left:60px}
@@ -18,22 +21,34 @@ document.head.insertAdjacentHTML("beforeend",`<style>
 .stage .c{position:absolute;left:50%;top:50%;width:112px;height:112px;border-radius:50%;background:#16A34A;display:grid;place-items:center;transform:translate(-50%,-50%) scale(0);animation:pop .5s .3s ease-out forwards}
 @keyframes grow{to{transform:translate(-50%,-50%) scale(1)}}
 @keyframes pop{0%{transform:translate(-50%,-50%) scale(0)}70%{transform:translate(-50%,-50%) scale(1.15)}100%{transform:translate(-50%,-50%) scale(1)}}
-.rcpt{background:#fff;border-radius:16px;padding:18px;box-shadow:0 4px 14px #4a23701a;position:relative;margin-bottom:14px}
-.rcpt h2{margin:0 0 2px;font-size:22px}
-.rl{display:flex;justify-content:space-between;gap:10px;margin:6px 0}
 .dsh{border-top:2px dashed #cbb8e6;margin:12px 0}
-.stamp{position:absolute;right:14px;top:14px;border:4px solid #16A34A;color:#16A34A;font-weight:900;font-size:22px;padding:2px 10px;border-radius:8px;transform:rotate(12deg);opacity:.85}
+.obar{position:sticky;bottom:0;margin-top:14px;background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff;border-radius:22px;padding:14px 14px 14px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px #4a237066}
+.obar .t{flex:1;line-height:1.25}
+.obar .t span{font-size:13px;opacity:.85;display:block}
+.obar .t b{font-size:24px}
+.obar button{background:#16A34A;color:#fff;border:0;border-radius:16px;min-height:56px;padding:0 20px;font-size:17px;font-weight:800;box-shadow:0 4px 12px #0003}
+.oi{display:flex;gap:12px;align-items:center;background:#F4EEFB;border-radius:18px;padding:12px;margin-bottom:10px}
+.oe{font-size:38px;width:52px;text-align:center}
+.ob{flex:1;display:flex;flex-direction:column;gap:2px}
+.ob b{font-size:17px}
+.oq{display:flex;align-items:center;gap:12px;margin-top:6px}
+.oq button{width:44px;height:44px;border-radius:50%;border:2px solid var(--grape);background:#fff;color:var(--grape);font-size:22px;font-weight:800}
+.oq b{min-width:22px;text-align:center;font-size:18px}
+.op{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.op>b{font-size:19px}
+.bank{background:#F4EEFB;border-radius:16px;padding:14px;margin:8px 0}
+.acct{font-size:28px;font-weight:900;letter-spacing:2px;font-family:monospace}
 </style>`);
-let cart=[],sq="",disc={t:"amt",v:0},payType="",viewSale=null,viewOwner=false,receiptBack="sell";
-const money=n=>(n<0?"-":"")+naira(Math.abs(n));
+let cart=[],sq="",disc={t:"amt",v:0},dTarget="order",payType="",viewSale=null,viewOwner=false,receiptBack="sell";
 const sameDay=(iso,d)=>new Date(iso).toDateString()===d.toDateString();
 const sumOf=(a,f)=>a.reduce((t,x)=>t+f(x),0);
 const payName=k=>({cash:"Cash",pos:"POS",transfer:"Transfer"}[k]||k);
+const prodOf=pid=>prods().find(x=>x.id===pid);
 function usage(extra){
 const u={};
 const add=(p,n)=>p.lines.forEach(l=>{u[l.itemId]=(u[l.itemId]||0)+l.qty*n});
-cart.forEach(c=>{const p=prods().find(x=>x.id===c.pid);if(p)add(p,c.qty)});
-if(extra){const p=prods().find(x=>x.id===extra);if(p)add(p,1)}
+cart.forEach(c=>{const p=prodOf(c.pid);if(p)add(p,c.qty)});
+if(extra){const p=prodOf(extra);if(p)add(p,1)}
 return u;
 }
 function fits(pid){
@@ -45,24 +60,29 @@ const u=usage();let m=Infinity;
 for(const l of p.lines){const i=itemById(l.itemId);if(!i||!(l.qty>0))return 0;m=Math.min(m,Math.floor((i.stock-(u[l.itemId]||0))/l.qty+1e-9))}
 return m===Infinity?0:Math.max(0,m);
 }
-const subTotal=()=>cart.reduce((s,c)=>{const p=prods().find(x=>x.id===c.pid);return s+(p?p.price*c.qty:0)},0);
+function discOf(t,v,base){let d=t==="pct"?Math.round(base*Math.min(v,100)/100):(Number(v)||0);return Math.max(0,Math.min(d,base))}
 const cartCount=()=>cart.reduce((s,c)=>s+c.qty,0);
-const cartCost=()=>cart.reduce((s,c)=>{const p=prods().find(x=>x.id===c.pid);return s+(p?costOf(p)*c.qty:0)},0);
-function discOf(t,v,sub){let d=t==="pct"?Math.round(sub*Math.min(v,100)/100):(Number(v)||0);return Math.max(0,Math.min(d,sub))}
-const discAmt=()=>discOf(disc.t,disc.v,subTotal());
+const lineGross=c=>{const p=prodOf(c.pid);return p?p.price*c.qty:0};
+const lineDisc=c=>discOf(c.d.t,c.d.v,lineGross(c));
+const subTotal=()=>cart.reduce((s,c)=>s+lineGross(c),0);
+const linesDisc=()=>cart.reduce((s,c)=>s+lineDisc(c),0);
+const afterLines=()=>subTotal()-linesDisc();
+const orderDisc=()=>discOf(disc.t,disc.v,afterLines());
+const discAmt=()=>linesDisc()+orderDisc();
 const grandTotal=()=>subTotal()-discAmt();
-function addToCart(pid){
-const p=prods().find(x=>x.id===pid);if(!p)return;
+const cartCost=()=>cart.reduce((s,c)=>{const p=prodOf(c.pid);return s+(p?costOf(p)*c.qty:0)},0);
+function addToCart(pid,r){
+const p=prodOf(pid);if(!p)return;
 if(!fits(pid))return toast("Not enough stock for "+p.name);
 const c=cart.find(x=>x.pid===pid);
-if(c)c.qty++;else cart.push({pid,qty:1});
-refreshSell();
+if(c)c.qty++;else cart.push({pid,qty:1,d:{t:"amt",v:0}});
+refreshSell();if(r)reviewOrder();
 }
-function decCart(pid){
+function decCart(pid,r){
 const c=cart.find(x=>x.pid===pid);if(!c)return;
 c.qty--;if(c.qty<=0)cart=cart.filter(x=>x.pid!==pid);
-if(!cart.length)disc={t:"amt",v:0};
-refreshSell();
+if(!cart.length){disc={t:"amt",v:0};closeSheet();refreshSell();return}
+refreshSell();if(r)reviewOrder();
 }
 function refreshSell(){if(current==="sell"){$("#grid").innerHTML=gridHTML();$("#order").innerHTML=orderHTML()}}
 function setSq(v){sq=v;$("#grid").innerHTML=gridHTML()}
@@ -80,39 +100,63 @@ return `<div class="tile"><div class="emoji">${pic(p.name)}</div><b>${esc(p.name
 }).join("");
 }
 function orderHTML(){
-const rows=cart.map(c=>{
-const p=prods().find(x=>x.id===c.pid);if(!p)return "";
-return `<div class="it" style="align-items:center;margin-bottom:6px"><span style="flex:1;font-weight:700">${pic(p.name)} ${esc(p.name)}</span><button class="btn sm ghost" style="width:44px;min-height:44px;padding:0" onclick="decCart('${p.id}')">−</button><b style="min-width:22px;text-align:center">${c.qty}</b><button class="btn sm ghost" style="width:44px;min-height:44px;padding:0" onclick="addToCart('${p.id}')">+</button><span style="min-width:78px;text-align:right">${naira(p.price*c.qty)}</span></div>`;
-}).join("");
-const d=discAmt();
-const lines=cart.length?`<div class="it small" style="margin:4px 0"><span>Subtotal</span><span>${naira(subTotal())}</span></div>`+(d?`<div class="it" style="margin:4px 0;color:var(--red);font-weight:700"><span>Discount${disc.t==="pct"?" ("+disc.v+"%)":""}</span><span>-${naira(d)}</span></div>`:""):"";
-return `<b>Current order · ${cartCount()} ${cartCount()===1?"item":"items"}</b><div style="max-height:24vh;overflow-y:auto">${rows}</div>${lines}<div class="it" style="margin:8px 0"><span class="big">Total</span><span class="big">${naira(grandTotal())}</span></div><button class="btn sm ghost" onclick="discForm()">${d?"Change discount":"Add discount"}</button><div class="gap"></div><button class="btn" ${cart.length?"":"disabled"} onclick="openPay()">Proceed to Payment</button>`;
+if(!cart.length)return "";
+return `<div class="obar"><div class="t"><span>${cartCount()} ${cartCount()===1?"item":"items"} in order</span><b>${naira(grandTotal())}</b></div><button onclick="reviewOrder()">View order</button></div>`;
 }
-screens.sell=()=>`<h1>New Sale</h1><p class="sub">Tap + Add to put products in the customer’s order.</p><input id="q" placeholder="Search products..." value="${esc(sq)}" oninput="setSq(this.value)"><div class="grid" id="grid">${gridHTML()}</div><div class="card" id="order" style="position:sticky;bottom:0;margin-top:14px;box-shadow:0 -4px 16px #4a237030">${orderHTML()}</div>`;
+screens.sell=()=>`<h1>New Sale</h1><p class="sub">Tap + Add on a product to start the customer’s order.</p><input id="q" placeholder="Search products..." value="${esc(sq)}" oninput="setSq(this.value)"><div class="grid" id="grid">${gridHTML()}</div><div id="order">${orderHTML()}</div>`;
 
-function discForm(){
+function reviewOrder(){
 if(!cart.length)return toast("Add products first");
-sheet(`<h1>Discount</h1><p class="sub">Subtotal ${naira(subTotal())}</p>
-<div class="seg"><button class="${disc.t==="amt"?"on":""}" onclick="setDiscType('amt')">₦ Amount</button><button class="${disc.t==="pct"?"on":""}" onclick="setDiscType('pct')">% Percent</button></div>
-<input id="d_val" type="number" inputmode="decimal" placeholder="${disc.t==="pct"?"e.g. 10":"e.g. 500"}" value="${disc.v||""}" oninput="discPreview()">
+const old=document.querySelector("#sheet .panel"),st=old?old.scrollTop:0;
+const rows=cart.map(c=>{
+const p=prodOf(c.pid),g=lineGross(c),d=lineDisc(c);
+return `<div class="oi"><div class="oe">${pic(p.name)}</div><div class="ob"><b>${esc(p.name)}</b><span class="small">${naira(p.price)} each</span><div class="oq"><button onclick="decCart('${p.id}',true)">−</button><b>${c.qty}</b><button onclick="addToCart('${p.id}',true)">+</button></div></div><div class="op"><b>${naira(g-d)}</b>${d?`<span class="small" style="color:var(--red);font-weight:700">Discount -${naira(d)}</span>`:""}<button class="pill" onclick="discForm('${p.id}')">${d?"Change discount":"Discount"}</button></div></div>`;
+}).join("");
+const ld=linesDisc(),od=orderDisc();
+sheet(`<h1>Your order</h1><p class="sub">${cartCount()} ${cartCount()===1?"item":"items"}</p>${rows}<div class="dsh"></div>
+<div class="it"><span>Subtotal</span><span>${naira(subTotal())}</span></div>
+${ld?`<div class="it" style="color:var(--red)"><span>Item discounts</span><span>-${naira(ld)}</span></div>`:""}
+${od?`<div class="it" style="color:var(--red);font-weight:700"><span>Order discount${disc.t==="pct"?" ("+disc.v+"%)":""}</span><span>-${naira(od)}</span></div>`:""}
+<div class="it" style="margin-top:6px"><span class="big">Total</span><span class="big" style="font-size:30px">${naira(grandTotal())}</span></div>
+<button class="btn sm ghost" onclick="discForm('order')">${od?"Change order discount":"Discount on whole order"}</button><div class="gap"></div>
+<button class="btn" onclick="openPay()">Proceed to Payment</button><div class="gap"></div>
+<button class="btn ghost" onclick="closeSheet()">Back to products</button>`);
+const np=document.querySelector("#sheet .panel");if(np)np.scrollTop=st;
+}
+function curDisc(){return dTarget==="order"?disc:cart.find(c=>c.pid===dTarget).d}
+function discBase(){return dTarget==="order"?afterLines():lineGross(cart.find(c=>c.pid===dTarget))}
+function discForm(target){
+if(target)dTarget=target;
+if(dTarget!=="order"&&!cart.find(c=>c.pid===dTarget))return;
+const cur=curDisc(),base=discBase();
+const name=dTarget==="order"?"Whole order":prodOf(dTarget).name;
+const quick=cur.t==="pct"?[5,10,15,20]:[100,200,500,1000];
+sheet(`<h1>Discount</h1><p class="sub">${esc(name)} · ${naira(base)}</p>
+<div class="seg"><button class="${cur.t==="amt"?"on":""}" onclick="setDiscType('amt')">₦ Amount</button><button class="${cur.t==="pct"?"on":""}" onclick="setDiscType('pct')">% Percent</button></div>
+<div class="pills">${quick.map(q=>`<button class="pill" onclick="quickDisc(${q})">${cur.t==="pct"?q+"%":"₦"+q}</button>`).join("")}</div>
+<input id="d_val" type="number" inputmode="decimal" placeholder="${cur.t==="pct"?"or type a percent":"or type an amount"}" value="${cur.v||""}" oninput="discPreview()">
 <div class="card" id="d_prev" style="box-shadow:none;border:2px solid #e7d8f7"></div>
 <button class="btn green" onclick="applyDisc()">Apply discount</button><div class="gap"></div>
-${disc.v?`<button class="btn redline" onclick="clearDisc()">Remove discount</button><div class="gap"></div>`:""}
-<button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
+${cur.v?`<button class="btn redline" onclick="clearDisc()">Remove discount</button><div class="gap"></div>`:""}
+<button class="btn ghost" onclick="reviewOrder()">Cancel</button>`);
 discPreview();
 }
-function setDiscType(t){const v=parseFloat($("#d_val").value)||0;disc={t,v};discForm()}
+function quickDisc(v){$("#d_val").value=v;discPreview()}
+function setDiscType(t){const v=parseFloat($("#d_val").value)||0;const c=curDisc();c.t=t;c.v=v;discForm()}
 function discPreview(){
-const v=parseFloat($("#d_val").value)||0,sub=subTotal(),d=discOf(disc.t,v,sub),nt=sub-d,pr=nt-cartCost();
-$("#d_prev").innerHTML=`<div class="it"><span>Discount</span><b>${naira(d)}</b></div><div class="it"><span>New total</span><b>${naira(nt)}</b></div><div class="it" style="margin:0"><span>Your profit</span><b style="color:${pr>=0?"var(--green)":"var(--red)"}">${money(pr)}</b></div>`+(pr<0?`<p class="small" style="color:var(--red);font-weight:700;margin:8px 0 0">This is below what you paid. You will lose ${naira(-pr)}.</p>`:"");
+const v=parseFloat($("#d_val").value)||0,cur=curDisc(),base=discBase(),d=discOf(cur.t,v,base),nt=base-d;
+let below=false;
+if(dTarget==="order")below=(afterLines()-discOf(cur.t,v,afterLines()))<cartCost();
+else{const c=cart.find(x=>x.pid===dTarget),p=prodOf(c.pid);below=nt<costOf(p)*c.qty}
+$("#d_prev").innerHTML=`<div class="it"><span>Discount</span><b>${naira(d)}</b></div><div class="it" style="margin:0"><span>New price</span><b>${naira(nt)}</b></div>`+(below?`<p class="small" style="color:var(--red);font-weight:700;margin:8px 0 0">This price is below what you paid for it.</p>`:"");
 }
 function applyDisc(){
-const v=parseFloat($("#d_val").value)||0;
+const v=parseFloat($("#d_val").value)||0,cur=curDisc();
 if(v<0)return toast("Discount cannot be negative");
-if(disc.t==="pct"&&v>100)return toast("Percent cannot be more than 100");
-disc={t:disc.t,v};closeSheet();refreshSell();toast(v?"Discount added":"No discount");
+if(cur.t==="pct"&&v>100)return toast("Percent cannot be more than 100");
+cur.v=v;refreshSell();reviewOrder();toast(v?"Discount added":"No discount");
 }
-function clearDisc(){disc={t:"amt",v:0};closeSheet();refreshSell()}
+function clearDisc(){const c=curDisc();c.v=0;refreshSell();reviewOrder()}
 
 function openPay(){
 if(!cart.length)return;
@@ -121,18 +165,34 @@ for(const id in u){const i=its.find(x=>x.id===id);if(!i||u[id]>i.stock+1e-9)retu
 payType="";drawPay();
 }
 function setPay(k){payType=k;drawPay()}
+function bankCards(){
+const b=DB.get("banks",[]);
+if(!b.length)return `<div class="card" style="box-shadow:none;border:2px dashed #d9c8ee"><p class="sub" style="margin:0 0 10px">No bank account saved yet. Save your account once in Settings and it will show here every time.</p><button class="btn sm ghost" onclick="closeSheet();go('settings')">Add bank account</button></div>`;
+return b.map(a=>`<div class="bank"><div class="small">${esc(a.bank)}</div><div class="acct">${esc(a.number)}</div><div style="font-weight:700">${esc(a.name)}</div><div class="row" style="margin-top:10px"><button class="btn sm ghost" onclick="copyAcct('${a.id}')">Copy number</button><button class="btn sm ghost" onclick="shareAcct('${a.id}')">Share details</button></div></div>`).join("");
+}
+function copyAcct(id){
+const a=DB.get("banks",[]).find(x=>x.id===id);if(!a)return;
+try{navigator.clipboard.writeText(a.number).then(()=>toast("Account number copied"),()=>toast("Could not copy"))}catch(e){toast("Could not copy")}
+}
+async function shareAcct(id){
+const a=DB.get("banks",[]).find(x=>x.id===id);if(!a)return;
+const txt=a.bank+"\nAccount number: "+a.number+"\nAccount name: "+a.name;
+try{if(navigator.share){await navigator.share({text:txt});return}}catch(e){if(e&&e.name==="AbortError")return}
+try{await navigator.clipboard.writeText(txt);toast("Details copied")}catch(e){toast("Could not share")}
+}
 function drawPay(){
 const t=grandTotal(),d=discAmt();
 const tile=(k,ico,l)=>`<button class="paytile ${payType===k?"on":""}" onclick="setPay('${k}')"><span style="font-size:30px">${ico}</span>${l}</button>`;
+const ck=txt=>`<label class="chk"><input type="checkbox" id="p_ok" style="width:28px;height:28px;margin:0;padding:0">${txt}</label>`;
 let box=`<p class="sub">Choose how the customer is paying.</p>`;
-if(payType==="cash")box=`<label>Amount received (₦) <span class="small">optional</span></label><input id="p_recv" type="number" inputmode="decimal" placeholder="${t}" oninput="recvChange()"><p class="big" id="p_change" style="margin:0 0 6px;color:var(--green)"></p><label class="chk"><input type="checkbox" id="p_ok" style="width:28px;height:28px;margin:0;padding:0">I have received ${naira(t)} in cash.</label>`;
-if(payType==="pos")box=`<label class="chk"><input type="checkbox" id="p_ok" style="width:28px;height:28px;margin:0;padding:0">The POS terminal shows APPROVED for ${naira(t)}.</label>`;
-if(payType==="transfer")box=`<label class="chk"><input type="checkbox" id="p_ok" style="width:28px;height:28px;margin:0;padding:0">I confirmed ${naira(t)} in my bank app or SMS alert, not a customer screenshot.</label>`;
+if(payType==="cash")box=`<label>Amount received (₦) <span class="small">optional</span></label><input id="p_recv" type="number" inputmode="decimal" placeholder="${t}" oninput="recvChange()"><p class="big" id="p_change" style="margin:0 0 6px;color:var(--green)"></p>`+ck(`I have received ${naira(t)} in cash.`);
+if(payType==="pos")box=ck(`The POS terminal shows APPROVED for ${naira(t)}.`);
+if(payType==="transfer")box=`<p class="sub" style="margin:0">Show the customer where to send ${naira(t)}:</p>`+bankCards()+ck(`I confirmed ${naira(t)} in my bank app or SMS alert, not a customer screenshot.`);
 sheet(`<h1>Has the customer paid you?</h1>
 <div class="big" style="font-size:34px">${naira(t)}</div>${d?`<p class="small" style="margin:0">After ${naira(d)} discount</p>`:""}
 <div class="paygrid">${tile("cash","💵","Cash")}${tile("pos","💳","POS")}${tile("transfer","🏦","Transfer")}</div>${box}
 <div class="slide"><span>Slide to confirm payment received</span><input type="range" id="slide" min="0" max="100" value="0" onchange="slideEnd()"></div>
-<div class="gap"></div><button class="btn ghost" onclick="closeSheet()">Not yet</button>`);
+<div class="gap"></div><button class="btn ghost" onclick="reviewOrder()">Back to order</button>`);
 }
 function recvChange(){
 const r=parseFloat($("#p_recv").value),t=grandTotal();
@@ -162,11 +222,12 @@ return m.shopCode+"-"+m.device+"-"+String(d.getFullYear()).slice(2)+p(d.getMonth
 function completeSale(){
 const u=usage(),its=items();
 for(const id in u){const i=its.find(x=>x.id===id);if(!i||u[id]>i.stock+1e-9){closeSheet();return toast("Not enough stock. Please check your order")}}
-const lines=cart.map(c=>{const p=prods().find(x=>x.id===c.pid);return{pid:p.id,name:p.name,qty:c.qty,price:p.price,cost:Math.round(costOf(p)*100)/100}});
-const subtotal=subTotal(),discount=discAmt(),total=subtotal-discount;
+const recv=(payType==="cash"&&$("#p_recv")&&$("#p_recv").value!=="")?parseFloat($("#p_recv").value):null;
+const lines=cart.map(c=>{const p=prodOf(c.pid);return{pid:p.id,name:p.name,qty:c.qty,price:p.price,disc:lineDisc(c),cost:Math.round(costOf(p)*100)/100}});
+const subtotal=subTotal(),od=orderDisc(),discount=discAmt(),total=subtotal-discount;
 const cost=Math.round(lines.reduce((s,l)=>s+l.cost*l.qty,0)*100)/100;
 const no=nextNo();
-const sale={id:DB.id(),no,date:new Date().toISOString(),lines,subtotal,discount,discType:disc.t,discValue:disc.v,total,pay:payType,cost,profit:Math.round((total-cost)*100)/100,by:"Owner",status:"paid"};
+const sale={id:DB.id(),no,date:new Date().toISOString(),lines,subtotal,orderDiscount:od,discount,discType:disc.t,discValue:disc.v,total,pay:payType,received:recv,cost,profit:Math.round((total-cost)*100)/100,by:"Owner",status:"paid"};
 const sales=DB.get("sales",[]);sales.push(sale);DB.set("sales",sales);
 for(const id in u){const i=its.find(x=>x.id===id);i.stock=Math.round((i.stock-u[id])*10000)/10000;addMove(id,"sold",-u[id],no)}
 DB.set("items",its);
@@ -197,43 +258,3 @@ const t=setTimeout(finish,2200);
 function finish(){if(fin)return;fin=true;clearTimeout(t);o.remove();done()}
 o.onclick=finish;document.body.appendChild(o);chime();
 }
-function receiptText(s){
-const d=new Date(s.date).toLocaleString("en-NG",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
-return shop()+"\nReceipt "+s.no+"\n"+d+"\n\n"+s.lines.map(l=>l.qty+" x "+l.name+"  "+naira(l.price*l.qty)).join("\n")+"\n\n"+(s.discount?"Subtotal "+naira(s.subtotal)+"\nDiscount -"+naira(s.discount)+"\n":"")+"Total "+naira(s.total)+"\nPaid by "+payName(s.pay)+"\nThank you!";
-}
-async function shareReceipt(id){
-const s=DB.get("sales",[]).find(x=>x.id===id);if(!s)return;
-const txt=receiptText(s);
-try{if(navigator.share){await navigator.share({title:"Receipt "+s.no,text:txt});return}}catch(e){if(e&&e.name==="AbortError")return}
-try{await navigator.clipboard.writeText(txt);toast("Receipt copied. Paste it in WhatsApp")}catch(e){toast("Sharing is not available on this phone")}
-}
-function openReceipt(id,owner,back){viewSale=id;viewOwner=owner;receiptBack=back;current="receipt";render()}
-screens.receipt=()=>{
-const s=DB.get("sales",[]).find(x=>x.id===viewSale);
-if(!s)return info("Receipt","Receipt not found.");
-const d=new Date(s.date).toLocaleString("en-NG",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
-const rows=s.lines.map(l=>`<div class="rl"><span>${l.qty} × ${esc(l.name)}</span><span>${naira(l.price*l.qty)}</span></div>`).join("");
-const dl=s.discount?`<div class="rl"><span>Subtotal</span><span>${naira(s.subtotal)}</span></div><div class="rl" style="color:var(--red)"><span>Discount${s.discType==="pct"?" ("+s.discValue+"%)":""}</span><span>-${naira(s.discount)}</span></div>`:"";
-const own=viewOwner?`<div class="card"><b>Owner only</b><div class="it"><span>Cost</span><span>${naira(s.cost)}</span></div><div class="it" style="margin:0"><span>Profit</span><b style="color:${s.profit>=0?"var(--green)":"var(--red)"}">${money(s.profit)}</b></div></div>`:"";
-return `<div class="rcpt"><div class="stamp">PAID</div><h2>${esc(shop())}</h2><p class="small" style="margin:0">Receipt ${s.no}<br>${d}</p><div class="dsh"></div>${rows}<div class="dsh"></div>${dl}<div class="rl"><b class="big">Total</b><b class="big">${naira(s.total)}</b></div><p class="small" style="margin:8px 0 0">Paid by ${payName(s.pay)} · Served by ${esc(s.by)}</p><div class="dsh"></div><p class="small" style="margin:0;text-align:center">Thank you for your purchase</p></div>${own}<button class="btn green" onclick="shareReceipt('${s.id}')">Share receipt</button><div class="gap"></div><button class="btn" onclick="go('${receiptBack}')">${receiptBack==="sell"?"Done":"Back"}</button>`;
-};
-screens.hist=()=>{
-const all=DB.get("sales",[]).slice().reverse(),td=all.filter(s=>sameDay(s.date,new Date()));
-const head=`<h1>History</h1><div class="card"><b>Today</b><div class="it"><span>Sales (${td.length})</span><span class="big">${naira(sumOf(td,s=>s.total))}</span></div><div class="it"><span>Discounts given</span><span>${naira(sumOf(td,s=>s.discount))}</span></div><div class="it" style="margin:0"><span>Profit</span><b style="color:var(--green)">${money(sumOf(td,s=>s.profit))}</b></div></div>`;
-if(!all.length)return head+`<div class="card"><p class="sub" style="margin:0">No sales yet. Your receipts will appear here.</p></div>`;
-return head+all.slice(0,60).map(s=>{
-const t=new Date(s.date).toLocaleString("en-NG",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
-const names=s.lines.map(l=>l.qty+"× "+esc(l.name)).join(", ");
-return `<div class="card" onclick="openReceipt('${s.id}',true,'hist')"><div class="it"><b>${s.no}</b><span class="big">${naira(s.total)}</span></div><p class="small" style="margin:0">${t} · ${payName(s.pay)}${s.discount?" · discount "+naira(s.discount):""}</p><p class="small" style="margin:4px 0 0">${names}</p></div>`;
-}).join("");
-};
-screens.dash=()=>{
-const td=DB.get("sales",[]).filter(s=>sameDay(s.date,new Date())),low=items().filter(isLow);
-return `<h1>Good day 👋</h1><p class="sub">${esc(shop())}</p><div class="card"><b>Today</b><div class="it"><span>Sales (${td.length})</span><span class="big">${naira(sumOf(td,s=>s.total))}</span></div><div class="it" style="margin:0"><span>Profit</span><b style="color:var(--green)">${money(sumOf(td,s=>s.profit))}</b></div>${sumOf(td,s=>s.discount)?`<p class="small" style="margin:8px 0 0">Discounts given: ${naira(sumOf(td,s=>s.discount))}</p>`:""}</div><div class="card"><b>Running low</b>`+(low.length?low.map(i=>`<div class="it"><span>${esc(i.name)}</span><span class="small">${fmt(i,i.stock)} left</span></div>`).join(""):`<p class="sub" style="margin:0">Nothing is running low.</p>`)+`</div>`;
-};
-const _setScr=screens.settings;
-screens.settings=()=>{
-const on=k=>store.get(k,"on")==="on";
-return _setScr()+`<div class="card"><b>Payment sound</b><button class="btn ${on("sound")?"green":"ghost"}" onclick="toggleSet('sound')">${on("sound")?"Sound is ON":"Sound is OFF"}</button></div><div class="card"><b>Success animation</b><button class="btn ${on("anim")?"green":"ghost"}" onclick="toggleSet('anim')">${on("anim")?"Animation is ON":"Animation is OFF"}</button></div>`;
-};
-function toggleSet(k){store.set(k,store.get(k,"on")==="on"?"off":"on");render()}
