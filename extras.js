@@ -11,10 +11,32 @@ document.head.insertAdjacentHTML("beforeend",`<style>
 .stat{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 .stat .card{margin:0}
 </style>`);
-let vault={ok:false,t:0,buf:"",step:"enter",first:"",tries:0,lock:0,tab:"today",msg:""};
+let vault={ok:false,t:0,buf:"",step:"enter",first:"",tries:0,lock:0,tab:"today",msg:"",next:null};
 tabs[4]=["vault","🔐","Vault"];
+/* ---------- Owner mode: buying prices and profit are hidden from workers ---------- */
+let own={until:0};
+const hasPin=()=>!!DB.get("vaultpin",null);
+const isOwner=()=>!hasPin()||Date.now()<own.until;
+const ownerOn=()=>{own.until=Date.now()+10*60000};
 const _go=go;
-go=function(t){if(t!=="vault")vault.ok=false;_go(t)};
+go=function(t){if(t!=="vault"){vault.ok=false;vault.next=null}_go(t)};
+const _render=render;
+render=function(){
+if(own.until&&Date.now()<own.until)own.until=Date.now()+10*60000;
+_render();
+const b=document.querySelector(".brand");if(b)b.textContent="ShopRoot"+(hasPin()&&!isOwner()?" 🔒":"");
+};
+function unlockThen(n){vault.next=n;go("vault")}
+function lockOwner(){own.until=0;vault.ok=false;render()}
+function lockedCard(name,key){return `<h1>${name}</h1><div class="card"><b>🔒 Owner only</b><p class="sub">Enter the owner PIN to open ${name.toLowerCase()}.</p><button class="btn green" onclick="unlockThen('${key}')">Enter PIN</button></div>`}
+const _stk3=screens.stock;
+function workerStock(){
+const list=items(),low=list.filter(isLow);
+const head=`<h1>Stock</h1><div class="chips"><span class="chip">${list.length} items</span>${low.length?`<span class="chip red">${low.length} running low</span>`:""}</div><p class="sub">Only the owner can add items or change prices.</p>`;
+if(!list.length)return head+`<div class="card"><p class="sub" style="margin:0">No items yet.</p></div><button class="btn sm ghost" onclick="unlockThen('stock')">Owner? Enter PIN</button>`;
+return head+list.map(i=>{const tag=isLow(i)?`<span class="badge">${i.stock<=0?"Out":"Low"}</span>`:"";return `<div class="card"><div class="it"><button class="nm" onclick="itemHistory('${i.id}')">${esc(i.name)}${tag}</button><span class="big">${fmt(i,i.stock)}</span></div><div class="row"><button class="btn sm" onclick="moveForm('${i.id}','restock')">Restock</button><button class="btn sm ghost" onclick="moveForm('${i.id}','waste')">Waste</button></div></div>`}).join("")+`<button class="btn sm ghost" onclick="unlockThen('stock')">Owner? Enter PIN</button>`;
+}
+screens.stock=()=>isOwner()?_stk3():workerStock();
 
 /* ---------- Settings: shop details, bank accounts, switches ---------- */
 const BANKS=["Access Bank","GTBank","First Bank","UBA","Zenith Bank","Opay","Moniepoint","PalmPay","Kuda","Wema Bank","Sterling Bank","Fidelity Bank","Union Bank","Stanbic IBTC","FCMB","Polaris Bank","Ecobank","Keystone Bank","Providus Bank","Other"];
@@ -33,6 +55,8 @@ return `<h1>Settings</h1>
 <div class="card"><b>Payment sound</b><button class="btn ${on("sound")?"green":"ghost"}" onclick="toggleSet('sound')">${on("sound")?"Sound is ON":"Sound is OFF"}</button></div>
 <div class="card"><b>Success animation</b><button class="btn ${on("anim")?"green":"ghost"}" onclick="toggleSet('anim')">${on("anim")?"Animation is ON":"Animation is OFF"}</button></div>`;
 };
+const _settingsFull=screens.settings;
+screens.settings=()=>isOwner()?_settingsFull():lockedCard("Settings","settings");
 function toggleSet(k){store.set(k,store.get(k,"on")==="on"?"off":"on");render()}
 function saveShopInfo(){
 store.set("shopName",$("#sn").value.trim()||"My Shop");
@@ -57,6 +81,123 @@ function delBank(id){
 sheet(`<h1>Remove this account?</h1><p class="sub">It will no longer show when customers pay by transfer.</p><button class="btn red" onclick="doDelBank('${id}')">Yes, remove</button><div class="gap"></div><button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
 }
 function doDelBank(id){DB.set("banks",DB.get("banks",[]).filter(x=>x.id!==id));toast("Removed");render()}
+
+/* ---------- QR code (small built-in encoder, level M, versions 1-6) ---------- */
+const QR=(()=>{
+const EXP=new Array(512),LOG=new Array(256);
+(()=>{let x=1;for(let i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&256)x^=0x11d}for(let i=255;i<512;i++)EXP[i]=EXP[i-255]})();
+const mul=(a,b)=>a&&b?EXP[LOG[a]+LOG[b]]:0;
+function rsEnc(data,n){
+let g=[1];
+for(let i=0;i<n;i++){const ng=new Array(g.length+1).fill(0);for(let j=0;j<g.length;j++){ng[j]^=g[j];ng[j+1]^=mul(g[j],EXP[i])}g=ng}
+const res=new Array(n).fill(0);
+for(const b of data){const f=b^res.shift();res.push(0);for(let i=0;i<n;i++)res[i]^=mul(g[i+1],f)}
+return res;
+}
+const T={1:{dc:16,ec:10,b:[16]},2:{dc:28,ec:16,b:[28]},3:{dc:44,ec:26,b:[44]},4:{dc:64,ec:18,b:[32,32]},5:{dc:86,ec:24,b:[43,43]},6:{dc:108,ec:16,b:[27,27,27,27]}};
+const AL={1:[],2:[6,18],3:[6,22],4:[6,26],5:[6,30],6:[6,34]};
+const MASKS=[(x,y)=>(x+y)%2===0,(x,y)=>y%2===0,(x,y)=>x%3===0,(x,y)=>(x+y)%3===0,(x,y)=>(Math.floor(x/3)+Math.floor(y/2))%2===0,(x,y)=>x*y%2+x*y%3===0,(x,y)=>(x*y%2+x*y%3)%2===0,(x,y)=>((x+y)%2+x*y%3)%2===0];
+function make(text){
+const bytes=Array.from(new TextEncoder().encode(text));
+let v=0;
+for(let k=1;k<=6;k++){if(12+bytes.length*8<=T[k].dc*8){v=k;break}}
+if(!v)return null;
+const t=T[v],n=17+4*v;
+let bits=[];
+const put=(val,len)=>{for(let i=len-1;i>=0;i--)bits.push((val>>>i)&1)};
+put(4,4);put(bytes.length,8);bytes.forEach(b=>put(b,8));
+put(0,Math.min(4,t.dc*8-bits.length));
+while(bits.length%8)bits.push(0);
+const data=[];for(let i=0;i<bits.length;i+=8){let b=0;for(let j=0;j<8;j++)b=(b<<1)|bits[i+j];data.push(b)}
+for(let p=0;data.length<t.dc;p++)data.push(p%2?0x11:0xEC);
+const blocks=[];let pos=0;
+for(const len of t.b){blocks.push(data.slice(pos,pos+len));pos+=len}
+const ecs=blocks.map(b=>rsEnc(b,t.ec));
+const out=[];
+for(let i=0;i<Math.max(...t.b);i++)blocks.forEach(b=>{if(i<b.length)out.push(b[i])});
+for(let i=0;i<t.ec;i++)ecs.forEach(e=>out.push(e[i]));
+const stream=[];out.forEach(b=>{for(let i=7;i>=0;i--)stream.push((b>>>i)&1)});
+if(v>1)for(let i=0;i<7;i++)stream.push(0);
+const mod=Array.from({length:n},()=>new Array(n).fill(false)),fn=Array.from({length:n},()=>new Array(n).fill(false));
+const set=(y,x,d)=>{if(y<0||x<0||y>=n||x>=n)return;mod[y][x]=d;fn[y][x]=true};
+const finder=(r,c)=>{for(let dy=-1;dy<=7;dy++)for(let dx=-1;dx<=7;dx++){const d=Math.max(Math.abs(dy-3),Math.abs(dx-3));set(r+dy,c+dx,d!==2&&d!==4)}};
+finder(0,0);finder(0,n-7);finder(n-7,0);
+for(let i=8;i<n-8;i++){set(6,i,i%2===0);set(i,6,i%2===0)}
+if(v>1){const a=AL[v][1];for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)set(a+dy,a+dx,Math.max(Math.abs(dy),Math.abs(dx))!==1)}
+for(let i=0;i<9;i++){if(!fn[8][i])set(8,i,false);if(!fn[i][8])set(i,8,false)}
+for(let i=0;i<8;i++){set(8,n-1-i,false);set(n-1-i,8,false)}
+set(n-8,8,true);
+let k=0;
+for(let right=n-1;right>=1;right-=2){
+if(right===6)right=5;
+for(let vert=0;vert<n;vert++)for(let j=0;j<2;j++){
+const x=right-j,up=((right+1)&2)===0,y=up?n-1-vert:vert;
+if(!fn[y][x]&&k<stream.length){mod[y][x]=!!stream[k];k++}
+}
+}
+const fmtBits=m=>{const d=m;let r=d;for(let i=0;i<10;i++)r=(r<<1)^((r>>>9)*0x537);return((d<<10)|r)^0x5412};
+const bit=(b,i)=>((b>>>i)&1)!==0;
+const drawFmt=(g,m)=>{
+const b=fmtBits(m);
+for(let i=0;i<=5;i++)g[i][8]=bit(b,i);
+g[7][8]=bit(b,6);g[8][8]=bit(b,7);g[8][7]=bit(b,8);
+for(let i=9;i<15;i++)g[8][14-i]=bit(b,i);
+for(let i=0;i<8;i++)g[8][n-1-i]=bit(b,i);
+for(let i=8;i<15;i++)g[n-15+i][8]=bit(b,i);
+g[n-8][8]=true;
+};
+const penalty=g=>{
+let p=0;
+for(let pass=0;pass<2;pass++){
+for(let a=0;a<n;a++){
+let run=1,line="";
+for(let b=0;b<n;b++){
+const c=pass?g[b][a]:g[a][b];line+=c?"1":"0";
+if(b>0){const pc=pass?g[b-1][a]:g[a][b-1];if(c===pc){run++;if(run===5)p+=3;else if(run>5)p++}else run=1}
+}
+const m=line.match(/10111010000|00001011101/g);if(m)p+=40*m.length;
+}
+}
+for(let y=0;y<n-1;y++)for(let x=0;x<n-1;x++){const c=g[y][x];if(c===g[y][x+1]&&c===g[y+1][x]&&c===g[y+1][x+1])p+=3}
+let dark=0;g.forEach(r=>r.forEach(c=>{if(c)dark++}));
+p+=(Math.ceil(Math.abs(dark*20-n*n*10)/(n*n))-1)*10;
+return p;
+};
+let best=null,bp=1e9;
+for(let m=0;m<8;m++){
+const g=mod.map(r=>r.slice());
+for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(!fn[y][x]&&MASKS[m](x,y))g[y][x]=!g[y][x];
+drawFmt(g,m);
+const p=penalty(g);
+if(p<bp){bp=p;best=g}
+}
+return best;
+}
+function draw(ctx,text,x,y,size){
+const g=make(text);if(!g)return;
+const n=g.length,m=Math.max(1,Math.floor(size/(n+8))),w=m*(n+8);
+ctx.fillStyle="#fff";ctx.fillRect(x,y,w,w);
+ctx.fillStyle="#000";
+for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(g[r][c])ctx.fillRect(x+(c+4)*m,y+(r+4)*m,m,m);
+}
+return{make,draw};
+})();
+
+/* ---------- Secret receipt code (never printed; only a code made from it is) ---------- */
+function secretKey(){
+const m=meta();
+if(!m.secret){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let s="";for(let i=0;i<24;i++)s+=c[Math.floor(Math.random()*c.length)];m.secret=s;DB.set("meta",m)}
+return m.secret;
+}
+function sigOf(s){
+let h1=0x9e3779b9,h2=0x7f4a7c15;const str=secretKey()+"|"+s.no+"|"+Math.round(s.total)+"|"+s.date;
+for(let r=0;r<20;r++)for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677);h1^=h2>>>15;h2^=h1>>>13}
+h1=Math.imul(h1^(h1>>>16),2246822507);h2=Math.imul(h2^(h2>>>16),3266489909);
+const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let o="";
+for(let i=0;i<8;i++)o+=A[((i<4?h1>>>(5*i):h2>>>(5*(i-4)))&31)];
+return o;
+}
+const codeShow=c=>c.slice(0,4)+"-"+c.slice(4);
 
 /* ---------- Receipt picture (drawn on a canvas like a shop receipt) ---------- */
 function drawReceipt(s){
@@ -103,6 +244,13 @@ lr("TOTAL",naira(s.total),22,true);
 dash();
 lr("Payment",payName(s.pay),14,false);
 if(s.pay==="cash"&&s.received!=null&&!isNaN(s.received)){lr("Cash received",naira(s.received),14,false);lr("Change",naira(Math.max(0,s.received-s.total)),14,false)}
+dash();
+const code=sigOf(s);
+y+=6;
+if(draw)QR.draw(ctx,"SR|"+s.no+"|"+code,CX-75,y,150);
+y+=150;
+center("Scan to verify this receipt",11,false,"#555",16);
+center("Code: "+codeShow(code),14,true,"#111",20);
 dash();
 const foot=info.footer==null?"Thank you for your patronage":info.footer;
 if(foot)center(foot,14,true,"#111",20);
@@ -153,11 +301,15 @@ return head+`<img src="${drawReceipt(s).toDataURL("image/png")}" style="width:10
 /* ---------- Dashboard and History (no profit shown here) ---------- */
 screens.dash=()=>{
 const td=DB.get("sales",[]).filter(s=>sameDay(s.date,new Date())),low=items().filter(isLow);
-return `<h1>Good day 👋</h1><p class="sub">${esc(shop())}</p><div class="card"><b>Today</b><div class="it" style="margin:0"><span>Sales (${td.length})</span><span class="big">${naira(sumOf(td,s=>s.total))}</span></div></div><div class="card"><b>Running low</b>`+(low.length?low.map(i=>`<div class="it"><span>${esc(i.name)}</span><span class="small">${fmt(i,i.stock)} left</span></div>`).join(""):`<p class="sub" style="margin:0">Nothing is running low.</p>`)+`</div>`;
+return `<h1>Good day 👋</h1><p class="sub">${esc(shop())}</p><div class="card"><b>Today</b><div class="it" style="margin:0"><span>Sales (${td.length})</span><span class="big">${naira(sumOf(td,s=>s.total))}</span></div></div><div class="card"><b>Running low</b>`+(low.length?low.map(i=>`<div class="it"><span>${esc(i.name)}</span><span class="small">${fmt(i,i.stock)} left</span></div>`).join(""):`<p class="sub" style="margin:0">Nothing is running low.</p>`)+`</div>`+(hasPin()?"":`<div class="card"><b>🔐 Protect your buying prices</b><p class="sub">Set a 4-digit PIN so workers cannot see what you pay for goods, or your profit.</p><button class="btn green" onclick="go('vault')">Set PIN</button></div>`);
+};
+screens.profile=()=>{
+const pin=hasPin(),ow=isOwner();
+return `<h1>Profile</h1><div class="card"><b>${esc(shop())}</b><p class="sub" style="margin:0">Mode: ${pin?(ow?"Owner":"Worker"):"Owner (no PIN set)"}</p></div>`+(pin?(ow?`<button class="btn" onclick="lockOwner()">🔒 Switch to worker mode</button>`:`<button class="btn green" onclick="unlockThen('profile')">🔓 Enter PIN for owner mode</button>`):`<button class="btn green" onclick="go('vault')">Set a PIN to protect your prices</button>`)+`<p class="sub" style="margin-top:14px">In worker mode, buying prices, profit, recipes, settings and the vault are hidden.</p>`;
 };
 screens.hist=()=>{
 const all=DB.get("sales",[]).slice().reverse(),td=all.filter(s=>sameDay(s.date,new Date()));
-const head=`<h1>History</h1><div class="card"><b>Today</b><div class="it" style="margin:0"><span>Sales (${td.length})</span><span class="big">${naira(sumOf(td,s=>s.total))}</span></div></div>`;
+const head=`<h1>History</h1><button class="btn sm ghost" onclick="go('verify')">🔍 Verify a receipt</button><div class="gap"></div><div class="card"><b>Today</b><div class="it" style="margin:0"><span>Sales (${td.length})</span><span class="big">${naira(sumOf(td,s=>s.total))}</span></div></div>`;
 if(!all.length)return head+`<div class="card"><p class="sub" style="margin:0">No sales yet. Your receipts will appear here.</p></div>`;
 return head+all.slice(0,60).map(s=>{
 const t=new Date(s.date).toLocaleString("en-NG",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
@@ -191,11 +343,11 @@ const pin=vault.buf;vault.buf="";
 const has=DB.get("vaultpin",null);
 if(!has){
 if(vault.step!=="confirm"){vault.first=pin;vault.step="confirm";return render()}
-if(pin===vault.first){DB.set("vaultpin",pinHash(pin));vault.ok=true;vault.t=Date.now();vault.step="enter";toast("PIN saved");return render()}
+if(pin===vault.first){DB.set("vaultpin",pinHash(pin));vault.ok=true;vault.t=Date.now();ownerOn();vault.step="enter";toast("PIN saved");return render()}
 vault.step="create";vault.msg="The two PINs did not match. Try again.";return render();
 }
 if(Date.now()<vault.lock){vault.msg="Too many tries. Please wait a minute.";return render()}
-if(pinHash(pin)===has){vault.ok=true;vault.t=Date.now();vault.tries=0;return render()}
+if(pinHash(pin)===has){vault.tries=0;ownerOn();if(vault.next){const n=vault.next;vault.next=null;vault.ok=false;current=n;return render()}vault.ok=true;vault.t=Date.now();return render()}
 vault.tries++;
 if(vault.tries>=5){vault.lock=Date.now()+60000;vault.tries=0;vault.msg="Too many tries. Please wait a minute."}
 else vault.msg="Wrong PIN. Try again.";
@@ -206,7 +358,7 @@ const now=new Date();
 return DB.get("sales",[]).filter(s=>{const d=new Date(s.date);if(k==="today")return sameDay(s.date,now);if(k==="week")return now-d<7*864e5&&d<=now;return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()});
 };
 function setVaultTab(k){vault.tab=k;render()}
-function lockVault(){vault.ok=false;render()}
+function lockVault(){own.until=0;vault.ok=false;render()}
 function changePin(){
 sheet(`<h1>Change your PIN?</h1><p class="sub">You will create a new 4-digit PIN.</p><button class="btn red" onclick="doChangePin()">Yes, change PIN</button><div class="gap"></div><button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
 }
@@ -240,3 +392,63 @@ return keypad("Enter your PIN","Your profit and private money records are inside
 vault.t=Date.now();
 return vaultHome();
 };
+
+/* ---------- Verify a receipt (QR scan, photo, or type it) ---------- */
+let camStop=()=>{};
+function stopCam(){camStop()}
+function verifyCheck(no,code,typed){
+no=(no||"").trim().toUpperCase();code=(code||"").replace(/[^A-Za-z0-9]/g,"").toUpperCase();
+const s=DB.get("sales",[]).find(x=>x.no.toUpperCase()===no);
+if(!s)return{k:"bad",t:"Not found",m:"This receipt number is not in this shop's records. It may be fake or from another shop."};
+if(sigOf(s)!==code)return{k:"bad",t:"Not genuine",m:"The code does not match this receipt. It may have been changed or copied."};
+const n=parseFloat(typed);
+if(typed!==""&&typed!=null&&!isNaN(n)&&Math.round(n)!==Math.round(s.total))return{k:"warn",t:"Amount changed",m:"The code is valid, but the total on this receipt ("+naira(n)+") does not match our record ("+naira(s.total)+").",sale:s};
+return{k:"ok",t:"Genuine receipt",m:"This receipt came from "+shop()+".",sale:s};
+}
+function showVerify(r){
+const col={ok:["#e8f8ee","#16A34A"],warn:["#fef3c7","#d97706"],bad:["#fee2e2","#DC2626"]}[r.k];
+const s=r.sale;
+$("#v_res").innerHTML=`<div class="card" style="background:${col[0]};border:3px solid ${col[1]}"><b style="font-size:22px;color:${col[1]}">${r.k==="ok"?"✅ ":r.k==="warn"?"⚠️ ":"❌ "}${r.t}</b><p style="margin:6px 0 0">${r.m}</p>`+(s?`<div class="dsh"></div><div class="it"><span>Receipt</span><b>${s.no}</b></div><div class="it"><span>Date</span><span>${new Date(s.date).toLocaleString("en-NG",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</span></div>${s.lines.map(l=>`<div class="it"><span>${l.qty} × ${esc(l.name)}</span><span>${naira(l.price*l.qty-(l.disc||0))}</span></div>`).join("")}<div class="it" style="margin:0"><b>Total</b><b>${naira(s.total)}</b></div>`:"")+`</div>`;
+}
+screens.verify=()=>`<h1>Verify receipt</h1><p class="sub">Check that a receipt really came from your shop.</p>
+<button class="btn green" onclick="scanCamera()">📷 Scan the QR code</button><div class="gap"></div>
+<label class="btn ghost" style="display:flex;align-items:center;justify-content:center">🖼️ Choose a photo of the receipt<input type="file" accept="image/*" style="display:none" onchange="scanPhoto(this)"></label>
+<div class="card" style="margin-top:14px"><b>Or type it</b><label>Receipt number</label><input id="v_no" placeholder="e.g. 5GL6-T32-261115-0001"><label>Code under the QR</label><input id="v_code" placeholder="e.g. K7P2-9XQM"><label>Total shown on the receipt <span class="small">optional</span></label><input id="v_tot" type="number" inputmode="decimal" placeholder="e.g. 3135"><button class="btn" onclick="runVerify()">Check receipt</button></div>
+<div id="v_res"></div><button class="btn ghost" onclick="go('hist')">Back to History</button>`;
+function runVerify(){
+const no=$("#v_no").value,code=$("#v_code").value;
+if(!no.trim()||!code.trim())return toast("Type the receipt number and the code");
+showVerify(verifyCheck(no,code,$("#v_tot").value));
+}
+function useQR(raw){
+const m=/^SR\|([^|]+)\|([A-Za-z0-9]+)$/.exec(String(raw).trim());
+if(current!=="verify"){current="verify";render()}
+if(!m){$("#v_res").innerHTML="";return toast("This QR code is not a ShopRoot receipt")}
+$("#v_no").value=m[1];$("#v_code").value=codeShow(m[2].toUpperCase());
+showVerify(verifyCheck(m[1],m[2],$("#v_tot").value));
+}
+async function scanCamera(){
+if(!("BarcodeDetector" in window))return toast("Camera scan is not available on this phone. Type the number and code instead.");
+let stream;
+try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})}catch(e){return toast("The camera was not allowed")}
+const det=new BarcodeDetector({formats:["qr_code"]});
+const o=document.createElement("div");o.id="cam";
+o.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;z-index:60;background:#000;display:flex;flex-direction:column";
+o.innerHTML=`<video autoplay playsinline muted style="flex:1;width:100%;object-fit:cover"></video><button class="btn" style="border-radius:0;min-height:64px" onclick="stopCam()">Cancel</button>`;
+document.body.appendChild(o);
+const v=o.querySelector("video");v.srcObject=stream;
+let tm=null;
+camStop=()=>{clearInterval(tm);stream.getTracks().forEach(t=>t.stop());o.remove();camStop=()=>{}};
+tm=setInterval(async()=>{try{const r=await det.detect(v);if(r.length){const raw=r[0].rawValue;camStop();useQR(raw)}}catch(e){}},300);
+}
+async function scanPhoto(inp){
+const f=inp.files&&inp.files[0];if(!f)return;
+if(!("BarcodeDetector" in window))return toast("Photo scan is not available on this phone. Type the number and code instead.");
+try{
+const det=new BarcodeDetector({formats:["qr_code"]});
+const bmp=await createImageBitmap(f);
+const r=await det.detect(bmp);
+if(!r.length)return toast("No QR code found in this photo");
+useQR(r[0].rawValue);
+}catch(e){toast("Could not read this photo")}
+}
