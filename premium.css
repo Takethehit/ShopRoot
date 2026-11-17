@@ -1,0 +1,42 @@
+body{
+font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+background-color:#F3ECFA;
+background-image:
+radial-gradient(1100px 520px at 90% -8%,rgba(139,92,246,.20),transparent 60%),
+radial-gradient(900px 520px at -12% 18%,rgba(22,163,74,.10),transparent 55%),
+radial-gradient(rgba(74,35,112,.055) 1px,transparent 1px),
+linear-gradient(180deg,#F8F3FD 0%,#EEE4F8 100%);
+background-size:auto,auto,22px 22px,auto;
+background-attachment:fixed;
+}
+button,input,select,label,textarea{font-family:inherit}
+h1,.brand b{font-family:"Playfair Display",Georgia,"Times New Roman",serif;letter-spacing:.2px}
+h1{font-size:30px;font-weight:700;margin:10px 0 6px}
+.sub{font-size:15px;line-height:1.45}
+header{background:rgba(255,255,255,.62);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-bottom:1px solid rgba(74,35,112,.08)}
+.avatar{background:linear-gradient(135deg,#4A2370,#8b5cf6);box-shadow:0 6px 16px rgba(74,35,112,.35),inset 0 0 0 2px rgba(255,255,255,.35);font-family:"Playfair Display",Georgia,serif;font-size:22px}
+.gear{background:rgba(255,255,255,.9);border:1px solid rgba(74,35,112,.08)}
+.brand{display:flex;flex-direction:column;line-height:1.12;font-size:inherit;font-weight:inherit;min-width:0}
+.brand b{font-size:22px;font-weight:700;color:var(--grape);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand small{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.3px;margin-top:2px}
+.card{background:rgba(255,255,255,.93);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:0 1px 2px rgba(74,35,112,.06),0 10px 28px rgba(74,35,112,.09)}
+.tile{border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:0 1px 2px rgba(74,35,112,.06),0 10px 26px rgba(74,35,112,.10)}
+.tile .emoji{filter:drop-shadow(0 4px 6px rgba(0,0,0,.14))}
+.btn{background:linear-gradient(135deg,#4A2370,#6b3a9a);letter-spacing:.2px}
+.btn.green{background:linear-gradient(180deg,#22c55e,#15803d);box-shadow:0 6px 16px rgba(22,163,74,.35)}
+.btn.red{background:linear-gradient(180deg,#ef4444,#b91c1c)}
+input,select{border-color:#dccdf0;box-shadow:inset 0 1px 2px rgba(74,35,112,.05)}
+nav{background:rgba(255,255,255,.84);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-radius:26px 26px 0 0;box-shadow:0 -10px 30px rgba(74,35,112,.12)}
+nav button{font-family:inherit;font-weight:700}
+nav button.on i{background:linear-gradient(135deg,#eadcfa,#d8c2f4)}
+#sheet .panel{border-radius:30px 30px 0 0}
+#sheet .panel::before{content:"";display:block;width:46px;height:5px;border-radius:3px;background:#d9c8ee;margin:-8px auto 14px}
+.seg{background:rgba(231,216,247,.8)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+main>*:not(#order){animation:fadeUp .35s ease both}
+.vt{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:rgba(255,255,255,.93);border:1px solid rgba(255,255,255,.9);border-radius:22px;padding:16px;margin-bottom:10px;color:var(--grape);box-shadow:0 1px 2px rgba(74,35,112,.06),0 10px 28px rgba(74,35,112,.09)}
+.vt i{font-style:normal;font-size:30px}
+.vt div{flex:1}
+.vt b{display:block;font-size:17px}
+.vt span{font-size:14px;color:var(--muted);font-weight:600}
+.vt em{font-style:normal;font-size:26px;color:var(--muted)}
