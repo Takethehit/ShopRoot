@@ -8,11 +8,13 @@ const d=new Date().toLocaleDateString("en-NG",{weekday:"long",day:"numeric",mont
 b.innerHTML=`<b>${esc(shop())}${hasPin()&&!isOwner()?" 🔒":""}</b><small>${d}</small>`;
 }
 };
+const fin={tab:"owe",page:"home",settled:false};
+let vr={key:"today",from:"",to:""};
 const _go2=go;
-go=function(t){if(t!=="vault")vault.page="home";_go2(t)};
+go=function(t){if(t!=="vault"){vault.page="home";vr.key="today"}if(t!=="fin")fin.page="home";_go2(t)};
 vault.page="home";
 function vaultGo(p){vault.page=p;render()}
-function lockVault(){own.until=0;vault.ok=false;vault.page="home";render()}
+function finGo(p,t){fin.page=p;if(t)fin.tab=t;render()}
 const backBtn=()=>`<button class="btn sm ghost" onclick="vaultGo('home')">← Back to Vault</button><div class="gap"></div>`;
 
 /* ---------- Profit uses buying prices set in the Vault ---------- */
@@ -34,59 +36,155 @@ $("#c_plabel").textContent=packs?"What did you pay for the whole pack? (₦)":"W
 }
 };
 
-/* ---------- Workers can add items and record stock, but never see or set prices ---------- */
-function workerStock(){
-const list=items(),low=list.filter(isLow);
-const head=`<h1>Stock</h1><div class="chips"><span class="chip">${list.length} items</span>${low.length?`<span class="chip red">${low.length} running low</span>`:""}</div><button class="btn green" onclick="itemForm()">+ Add item</button><div class="gap"></div>`;
-const foot=`<button class="btn sm ghost" onclick="unlockThen('stock')">Owner? Enter PIN</button>`;
-if(!list.length)return head+`<div class="card"><p class="sub" style="margin:0">No items yet.</p></div>`+foot;
-return head+list.map(i=>{const tag=isLow(i)?`<span class="badge">${i.stock<=0?"Out":"Low"}</span>`:"";return `<div class="card"><div class="it"><button class="nm" onclick="itemHistory('${i.id}')">${esc(i.name)}${tag}</button><span class="big">${fmt(i,i.stock)}</span></div><div class="row"><button class="btn sm" onclick="moveForm('${i.id}','restock')">Restock</button><button class="btn sm ghost" onclick="moveForm('${i.id}','waste')">Waste</button></div></div>`}).join("")+foot;
+/* ---------- PIN (Vault and Finance). It can be skipped by an owner who works alone ---------- */
+function keypad(title,sub,skip){
+const dots=[0,1,2,3].map(i=>`<i class="${i<vault.buf.length?"on":""}"></i>`).join("");
+const keys=["1","2","3","4","5","6","7","8","9","","0","⌫"].map(k=>k===""?`<span></span>`:`<button onclick="pinKey('${k}')">${k}</button>`).join("");
+return `<h1>🔐 ${title}</h1><p class="sub">${sub}</p><div class="dots">${dots}</div>${vault.msg?`<p class="sub" style="text-align:center;color:var(--red);font-weight:700">${vault.msg}</p>`:""}<div class="keys">${keys}</div>${skip?`<button class="btn ghost" style="max-width:300px;margin:18px auto 6px;display:block" onclick="skipPin()">Skip. I work alone</button><p class="small" style="text-align:center;margin:0">You can set a PIN later in the Vault.</p>`:""}`;
+}
+function pinDone(){
+const pin=vault.buf;vault.buf="";
+const has=DB.get("vaultpin",null);
+if(!has){
+if(vault.step!=="confirm"){vault.first=pin;vault.step="confirm";return render()}
+if(pin===vault.first){DB.set("vaultpin",pinHash(pin));DB.set("pinskip",false);ownerOn();vault.step="enter";toast("PIN saved");return render()}
+vault.step="create";vault.msg="The two PINs did not match. Try again.";return render();
+}
+if(Date.now()<vault.lock){vault.msg="Too many tries. Please wait a minute.";return render()}
+if(pinHash(pin)===has){vault.tries=0;ownerOn();if(vault.next){const n=vault.next;vault.next=null;current=n}return render()}
+vault.tries++;
+if(vault.tries>=5){vault.lock=Date.now()+60000;vault.tries=0;vault.msg="Too many tries. Please wait a minute."}
+else vault.msg="Wrong PIN. Try again.";
+render();
+}
+function skipPin(){DB.set("pinskip",true);toast("PIN skipped");render()}
+function startPin(){DB.set("pinskip",false);vault.step="create";vault.buf="";vault.msg="";render()}
+function lockNow(){own.until=0;render()}
+function changePin(){
+sheet(`<h1>Change your PIN?</h1><p class="sub">You will create a new 4-digit PIN.</p><button class="btn red" onclick="doChangePin()">Yes, change PIN</button><div class="gap"></div><button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
+}
+function doChangePin(){DB.set("vaultpin",null);DB.set("pinskip",false);own.until=0;vault.step="create";vault.buf="";vault.msg="";closeSheet();render()}
+function turnOffPin(){
+sheet(`<h1>Turn off the PIN?</h1><p class="sub">Anyone who uses this phone will be able to open the Vault and Finance, and see your buying prices and profit.</p><button class="btn red" onclick="doTurnOff()">Yes, turn it off</button><div class="gap"></div><button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
+}
+function doTurnOff(){DB.set("vaultpin",null);DB.set("pinskip",true);closeSheet();toast("PIN turned off");render()}
+function gate(sub){
+if(!hasPin()&&!DB.get("pinskip",false)){
+if(vault.step!=="confirm")vault.step="create";
+return keypad(vault.step==="create"?"Create your PIN":"Confirm your PIN","Choose 4 numbers and write them down somewhere safe. Or skip if you work alone.",vault.step==="create");
+}
+if(hasPin()&&!isOwner()){vault.step="enter";return keypad("Enter your PIN",sub,false)}
+return null;
+}
+screens.vault=()=>gate("Your profit and private records are inside.")||vaultHome();
+screens.fin=()=>gate("Who you owe and who owes you.")||financeHome();
+
+/* ---------- Dates, totals and the numbers shown in the Vault ---------- */
+const DAY=864e5;
+const startOfDay=d=>{const x=new Date(d);x.setHours(0,0,0,0);return x};
+function rangeOf(key,from,to){
+const t0=startOfDay(new Date());
+if(key==="today")return[t0,new Date(+t0+DAY)];
+if(key==="yesterday")return[new Date(+t0-DAY),t0];
+if(key==="7d")return[new Date(+t0-6*DAY),new Date(+t0+DAY)];
+if(key==="30d")return[new Date(+t0-29*DAY),new Date(+t0+DAY)];
+if(key==="3m")return[new Date(+t0-89*DAY),new Date(+t0+DAY)];
+if(key==="1y")return[new Date(+t0-364*DAY),new Date(+t0+DAY)];
+const a=from?new Date(from+"T00:00:00"):t0,b=to?new Date(to+"T00:00:00"):a;
+return[a,new Date(+b+DAY)];
+}
+const inR=(iso,r)=>{const t=+new Date(iso);return t>=+r[0]&&t<+r[1]};
+const unitsOf=(i,q)=>!i?0:(i.unit==="piece"?q:q/1000);
+const fmtN=n=>String(Math.round(n*10)/10);
+const isRestock=m=>m.type==="restock"||m.type==="opening";
+function stats(r){
+const sales=DB.get("sales",[]).filter(s=>inR(s.date,r));
+const rev=sumOf(sales,s=>s.total),dis=sumOf(sales,s=>s.discount||0),cost=sumOf(sales,saleCostNow);
+const mv=moves().filter(m=>isRestock(m)&&inR(m.date,r));
+return{count:sales.length,rev,dis,cost,profit:Math.round((rev-cost)*100)/100,restockUnits:sumOf(mv,m=>unitsOf(itemById(m.itemId),m.amount)),restockValue:sumOf(mv,m=>{const i=itemById(m.itemId);return i&&hasCost(i)?m.amount*i.packPrice/i.packSize:0})};
+}
+const METRICS={
+sales:{t:"Sales",ico:"💰",val:s=>naira(s.rev)},
+profit:{t:"Profit",ico:"📈",val:s=>money(s.profit)},
+restock:{t:"Restocked",ico:"📦",val:s=>fmtN(s.restockUnits)+" units"},
+discounts:{t:"Discounts",ico:"🏷️",val:s=>naira(s.dis)},
+count:{t:"Sales count",ico:"🧾",val:s=>String(s.count)}
+};
+function totalStock(){
+const its=items();
+return{units:sumOf(its,i=>unitsOf(i,i.stock)),products:its.length,value:sumOf(its,i=>hasCost(i)?i.stock*i.packPrice/i.packSize:0),unknown:its.filter(i=>!hasCost(i)).length};
+}
+function openCard(pg){if(pg.startsWith("m:"))vr.key="today";vaultGo(pg)}
+const kc=(ico,label,val,sub,pg)=>`<button class="kc" onclick="openCard('${pg}')"><span>${ico} ${label}</span><b>${val}</b><span>${sub}</span></button>`;
+function kpiRow(){
+const st=stats(rangeOf("today")),ts=totalStock();
+return `<p class="sub">Today. Tap any box to see the full details.</p><div class="kpi">${kc("💰","Sales",naira(st.rev),st.count+" sale"+(st.count===1?"":"s"),"m:sales")}${kc("📈","Profit",money(st.profit),"after buying prices","m:profit")}${kc("📦","Restocked",fmtN(st.restockUnits)+" units",st.restockValue?"worth "+naira(st.restockValue):"today","m:restock")}${kc("🗄️","Total stock",fmtN(ts.units)+" units",ts.products+" product"+(ts.products===1?"":"s"),"stock")}${kc("🏷️","Discounts",naira(st.dis),"given today","m:discounts")}${kc("🧾","Sales count",String(st.count),"today","m:count")}</div>`;
 }
 
-/* ---------- Vault main page ---------- */
+/* ---------- Vault pages ---------- */
 function vaultHome(){
 const p=vault.page||"home";
-if(p==="prices")return pricesPage();
-if(p==="owe"||p==="owed")return ledgerList(p);
-if(p.startsWith("p:"))return personPage(p.slice(2));
+if(p==="stock")return stockPage();
+if(p.startsWith("m:"))return metricPage(p.slice(2));
 return vaultMain();
 }
-function vaultMain(){
-const list=period(vault.tab),names={today:"Today",week:"Last 7 days",month:"This month"};
-const rev=sumOf(list,s=>s.total),dis=sumOf(list,s=>s.discount||0),cost=sumOf(list,saleCostNow),pr=Math.round((rev-cost)*100)/100;
-const miss=items().filter(i=>!hasCost(i));
-const seg=`<div class="seg">${["today","week","month"].map(k=>`<button class="${vault.tab===k?"on":""}" onclick="setVaultTab('${k}')">${k==="today"?"Today":k==="week"?"7 days":"Month"}</button>`).join("")}</div>`;
-const recent=DB.get("sales",[]).slice().reverse().slice(0,15).map(s=>{
-const t=new Date(s.date).toLocaleString("en-NG",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
-const pf=saleProfitNow(s);
-return `<div class="card" onclick="openReceipt('${s.id}',false,'vault')"><div class="it" style="margin:0"><span><b>${s.no}</b><br><span class="small">${t} · sold ${naira(s.total)}</span></span><b style="color:${pf>=0?"var(--green)":"var(--red)"}">${money(pf)}</b></div></div>`;
-}).join("");
-const tile=(ico,title,sub,pg)=>`<button class="vt" onclick="vaultGo('${pg}')"><i>${ico}</i><div><b>${title}</b><span>${sub}</span></div><em>›</em></button>`;
-return `<h1>🔐 Vault</h1><button class="btn sm ghost" onclick="lockVault()">Lock vault now</button><div class="gap"></div>
-${remindCard()}
-${seg}
-<div class="card" style="background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff"><b>Profit · ${names[vault.tab]}</b><div style="font-size:38px;font-weight:900">${money(pr)}</div><span style="opacity:.85">${list.length} sale${list.length===1?"":"s"}</span></div>
-${miss.length?`<div class="card" style="border:2px solid #f59e0b;background:#fffbeb"><b>⚠️ ${miss.length} stock item${miss.length>1?"s have":" has"} no buying price</b><p class="sub" style="margin:0 0 10px">Profit is too high until you add what you paid.</p><button class="btn sm green" onclick="vaultGo('prices')">Add buying prices</button></div>`:""}
-<div class="stat"><div class="card"><span class="small">Sales</span><br><b>${naira(rev)}</b></div><div class="card"><span class="small">Cost of goods</span><br><b>${naira(cost)}</b></div><div class="card"><span class="small">Discounts given</span><br><b>${naira(dis)}</b></div><div class="card"><span class="small">Sales count</span><br><b>${list.length}</b></div></div>
-${tile("💰","Buying prices",miss.length?miss.length+" not set":"All set","prices")}
-${tile("🏭","Suppliers I owe",naira(totalBal("owe"))+" to pay","owe")}
-${tile("🤝","People who owe me",naira(totalBal("owed"))+" to collect","owed")}
-<h1 style="font-size:20px">Recent sales and profit</h1>${recent||`<div class="card"><p class="sub" style="margin:0">No sales yet.</p></div>`}
-<button class="btn sm ghost" onclick="changePin()">Change PIN</button>`;
-}
-
-/* ---------- Buying prices page ---------- */
 const PACKS={g:[["1 kg",1000],["5 kg",5000],["10 kg",10000],["25 kg",25000],["50 kg",50000],["Other",0]],ml:[["1 L",1000],["5 L",5000],["10 L",10000],["20 L",20000],["25 L",25000],["Other",0]]};
 function costLine(i){
 if(i.unit==="piece")return naira(i.packPrice/i.packSize)+" each"+(Number(i.packSize)!==1?` <span class="small">(${naira(i.packPrice)} per ${fmt(i,i.packSize)})</span>`:"");
 return naira(i.packPrice)+" per "+fmt(i,i.packSize);
 }
-function pricesPage(){
-const its=items(),miss=its.filter(i=>!hasCost(i));
-return backBtn()+`<h1>💰 Buying prices</h1><p class="sub">What you paid for each stock. Only you can see this page. Workers never see it.</p>`+
-(its.length?`<div class="chips">${miss.length?`<span class="chip red">${miss.length} not set</span>`:`<span class="chip">All prices set ✅</span>`}</div>`:"")+
-(its.length?its.map(i=>`<div class="card"><div class="it"><b>${esc(i.name)}</b><span class="small">${fmt(i,i.stock)} in stock</span></div><p style="margin:0 0 10px">${hasCost(i)?costLine(i):`<span style="color:var(--red);font-weight:700">Not set</span>`}</p><button class="btn sm ${hasCost(i)?"ghost":"green"}" onclick="costForm('${i.id}')">${hasCost(i)?"Change price":"Set buying price"}</button></div>`).join(""):`<div class="card"><p class="sub" style="margin:0">No stock yet. Add items in the Stock tab first.</p></div>`);
+function priceRows(its){
+return its.map(i=>`<div class="card"><div class="pcrow"><div class="pcimg">${thumb(i)}</div><div class="pcinfo"><b>${esc(i.name)}</b><span class="small">${fmt(i,i.stock)} in stock</span><span>${hasCost(i)?costLine(i):`<span style="color:var(--red);font-weight:700">Buying price not set</span>`}</span></div></div><button class="btn sm ${hasCost(i)?"ghost":"green"}" onclick="costForm('${i.id}')">${hasCost(i)?"Change buying price":"Set buying price"}</button></div>`).join("");
 }
+function vaultMain(){
+const its=items(),miss=its.filter(i=>!hasCost(i));
+return `<h1>🔐 Vault</h1>`+(hasPin()?`<button class="btn sm ghost" onclick="lockNow()">Lock vault now</button><div class="gap"></div>`:"")+kpiRow()+
+(miss.length?`<div class="card" style="border:2px solid #f59e0b;background:#fffbeb"><b>⚠️ ${miss.length} product${miss.length>1?"s have":" has"} no buying price</b><p class="sub" style="margin:0">Profit is too high until you add what you paid. Scroll down to add them.</p></div>`:"")+
+`<h1 style="font-size:22px">Buying prices</h1><p class="sub">What you paid for each product. Only you can see this.</p>`+
+(its.length?priceRows(its):`<div class="card"><p class="sub" style="margin:0">No products yet. Add products in the Product tab first.</p></div>`)+
+(hasPin()?`<div class="g2"><button class="btn sm ghost" onclick="changePin()">Change PIN</button><button class="btn sm ghost" onclick="turnOffPin()">Turn off PIN</button></div>`:`<div class="card"><b>🔓 No PIN set</b><p class="sub" style="margin:0 0 10px">Anyone using this phone can open the Vault and Finance. Set a PIN to protect them.</p><button class="btn sm green" onclick="startPin()">Set a PIN</button></div>`);
+}
+function stockPage(){
+const its=items(),ts=totalStock();
+const rows=its.map(i=>{const v=hasCost(i)?i.stock*i.packPrice/i.packSize:null;const tag=isLow(i)?`<span class="badge">${i.stock<=0?"Out":"Low"}</span>`:"";return `<div class="card"><div class="pcrow" style="margin:0"><div class="pcimg">${thumb(i)}</div><div class="pcinfo"><b>${esc(i.name)}${tag}</b><span class="small">${fmt(i,i.stock)} in stock</span><span class="small">${v==null?"Buying price not set":"Worth "+naira(v)+" at buying price"}</span></div></div></div>`}).join("");
+return backBtn()+`<h1>🗄️ Total stock</h1>`+kpiRow()+
+`<div class="card"><b>Stock summary</b><div class="it"><span>Units in stock</span><b>${fmtN(ts.units)}</b></div><div class="it"><span>Products</span><b>${ts.products}</b></div><div class="it" style="margin:0"><span>Value at buying price</span><b>${naira(ts.value)}</b></div>${ts.unknown?`<p class="small" style="margin:8px 0 0">${ts.unknown} product${ts.unknown>1?"s have":" has"} no buying price yet, so the value is not complete.</p>`:""}</div>`+
+`<h1 style="font-size:22px">All products</h1>`+(rows||`<div class="card"><p class="sub" style="margin:0">No products yet.</p></div>`);
+}
+function setRange(k){vr.key=k;if(k==="custom"&&!vr.from){const t=ymd(new Date());vr.from=t;vr.to=t}render()}
+function applyCustom(){
+const f=$("#vr_from").value,t=$("#vr_to").value;
+if(!f)return toast("Pick the first date");
+if(t&&t<f)return toast("The last date must be after the first date");
+vr.from=f;vr.to=t||f;vr.key="custom";render();
+}
+function breakdown(k,r){
+const days=Math.round((r[1]-r[0])/DAY),byMonth=days>62;
+const keyOf=iso=>{const d=new Date(iso);return byMonth?d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"):ymd(d)};
+const B={},get=kk=>B[kk]||(B[kk]={rev:0,dis:0,profit:0,count:0,units:0});
+DB.get("sales",[]).filter(s=>inR(s.date,r)).forEach(s=>{const b=get(keyOf(s.date));b.rev+=s.total;b.dis+=s.discount||0;b.profit+=saleProfitNow(s);b.count++});
+moves().filter(m=>isRestock(m)&&inR(m.date,r)).forEach(m=>{get(keyOf(m.date)).units+=unitsOf(itemById(m.itemId),m.amount)});
+const val=b=>k==="sales"?naira(b.rev):k==="profit"?money(Math.round(b.profit*100)/100):k==="restock"?fmtN(b.units)+" units":k==="discounts"?naira(b.dis):String(b.count);
+const label=kk=>byMonth?new Date(kk+"-01T00:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):new Date(kk+"T00:00:00").toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"});
+const keys=Object.keys(B).sort().reverse();
+const nonzero=keys.filter(kk=>{const b=B[kk];return b.rev||b.dis||b.units||b.count});
+return nonzero.length?nonzero.map(kk=>`<div class="it"><span>${label(kk)}</span><b>${val(B[kk])}</b></div>`).join(""):`<p class="sub" style="margin:0">Nothing recorded in this period.</p>`;
+}
+function metricPage(k){
+const M=METRICS[k]||METRICS.sales;if(!METRICS[k])k="sales";
+const r=rangeOf(vr.key,vr.from,vr.to),st=stats(r);
+const P=[["today","Today"],["yesterday","Yesterday"],["7d","7 days"],["30d","30 days"],["3m","3 months"],["1y","1 year"],["custom","Pick dates"]];
+const names={today:"Today",yesterday:"Yesterday","7d":"Last 7 days","30d":"Last 30 days","3m":"Last 3 months","1y":"Last year",custom:"Chosen dates"};
+const compare=P.filter(p=>p[0]!=="custom").map(p=>`<div class="it" onclick="setRange('${p[0]}')"><span>${p[1]==="7 days"?"Last 7 days":p[1]==="30 days"?"Last 30 days":p[1]==="3 months"?"Last 3 months":p[1]==="1 year"?"Last year":p[1]}</span><b>${M.val(stats(rangeOf(p[0])))}</b></div>`).join("");
+return backBtn()+`<h1>${M.ico} ${M.t}</h1>
+<div class="pills">${P.map(p=>`<button class="pill ${vr.key===p[0]?"on":""}" onclick="setRange('${p[0]}')">${p[1]}</button>`).join("")}</div>
+${vr.key==="custom"?`<div class="card"><label>From</label><input id="vr_from" type="date" value="${vr.from}"><label>To</label><input id="vr_to" type="date" value="${vr.to}"><button class="btn green" onclick="applyCustom()">Show these dates</button></div>`:""}
+<div class="card" style="background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff"><b>${M.t} · ${names[vr.key]}</b><div style="font-size:38px;font-weight:900">${M.val(st)}</div><span style="opacity:.9">${st.count} sale${st.count===1?"":"s"}</span></div>
+<div class="card"><b>Compare</b>${compare}</div>
+<h1 style="font-size:22px">Day by day</h1><div class="card">${breakdown(k,r)}</div>`;
+}
+
+/* ---------- Buying price form (inside the Vault) ---------- */
 function costForm(id){
 const i=items().find(x=>x.id===id),isP=i.unit==="piece";
 let top="",m=null;
@@ -121,7 +219,7 @@ i.packSize=size;i.packPrice=price;
 DB.set("items",list);toast("Buying price saved");render();
 }
 
-/* ---------- Suppliers I owe / People who owe me ---------- */
+/* ---------- Finance: people I owe and people who owe me ---------- */
 const LK={
 owe:{title:"Suppliers I owe",icon:"🏭",add:"+ Add supplier or partner",charge:"+ Add stock bought",pay:"💵 Record payment",chargeTitle:"Add stock bought",payTitle:"Record payment",chargeName:"Stock bought",payName:"Payment made",totalL:"Total bought",paidL:"Paid so far",balL:"Still to pay",amtLabel:"Value of stock bought (₦)",tags:["Supplier","Business partner","Individual","Other"],empty:"No one yet. Add a supplier or partner you need to pay."},
 owed:{title:"People who owe me",icon:"🤝",add:"+ Add person who owes me",charge:"+ Add amount owed",pay:"💵 Record collection",chargeTitle:"Add amount owed",payTitle:"Record collection",chargeName:"Amount owed",payName:"Collected",totalL:"Total owed",paidL:"Collected so far",balL:"Still to collect",amtLabel:"Amount they owe (₦)",tags:["Customer","Business","Individual","Other"],empty:"No one yet. Add someone who owes you money."}
@@ -131,6 +229,7 @@ const saveLedger=l=>DB.set("ledger",l);
 const entTotal=(p,t)=>p.entries.filter(e=>e.type===t).reduce((s,e)=>s+e.amount,0);
 const balOf=p=>Math.round((entTotal(p,"charge")-entTotal(p,"pay"))*100)/100;
 const totalBal=k=>ledger().filter(p=>p.kind===k).reduce((s,p)=>s+Math.max(0,balOf(p)),0);
+const activeCount=k=>ledger().filter(p=>p.kind===k&&balOf(p)>0).length;
 const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 function daysTo(due){if(!due)return null;return Math.round((new Date(due+"T00:00:00")-new Date(ymd(new Date())+"T00:00:00"))/864e5)}
 function dueText(p){
@@ -144,26 +243,35 @@ function dueColor(p){const d=daysTo(p.due);return d!==null&&d<0?"var(--red)":(d!
 function remindItems(){return ledger().filter(p=>balOf(p)>0&&p.due&&daysTo(p.due)<=2).sort((a,b)=>daysTo(a.due)-daysTo(b.due))}
 function remindCard(){
 const r=remindItems();if(!r.length)return "";
-return `<div class="card" style="border:2px solid #f59e0b;background:#fffbeb"><b>⏰ Reminders</b>${r.map(p=>`<div class="it" onclick="vaultGo('p:${p.id}')"><span>${LK[p.kind].icon} <b>${esc(p.name)}</b><br><span class="small" style="color:${dueColor(p)};font-weight:700">${dueText(p)} · ${p.kind==="owe"?"pay":"collect"}</span></span><b>${naira(balOf(p))}</b></div>`).join("")}</div>`;
+return `<div class="card" style="border:2px solid #f59e0b;background:#fffbeb"><b>⏰ Reminders</b>${r.map(p=>`<div class="it" onclick="finGo('p:${p.id}','${p.kind}')"><span>${LK[p.kind].icon} <b>${esc(p.name)}</b><br><span class="small" style="color:${dueColor(p)};font-weight:700">${dueText(p)} · ${p.kind==="owe"?"pay":"collect"}</span></span><b>${naira(balOf(p))}</b></div>`).join("")}</div>`;
 }
-function ledgerList(k){
-const L=LK[k],list=ledger().filter(p=>p.kind===k).sort((a,b)=>balOf(b)-balOf(a));
-return backBtn()+`<h1>${L.icon} ${L.title}</h1><div class="card" style="background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff"><b>${L.balL}</b><div style="font-size:34px;font-weight:900">${naira(totalBal(k))}</div></div><button class="btn green" onclick="personForm('${k}')">${L.add}</button><div class="gap"></div>`+
-(list.length?list.map(p=>{
+function personCard(p){
 const b=balOf(p),dt=dueText(p);
-return `<div class="card" onclick="vaultGo('p:${p.id}')"><div class="it"><b style="font-size:18px">${esc(p.name)}</b><b style="font-size:20px;color:${b>0?(k==="owe"?"var(--red)":"var(--grape)"):"var(--green)"}">${b>0?naira(b):"Settled ✅"}</b></div><p class="small" style="margin:0">${esc(p.tag||"")}${dt?` · <span style="color:${dueColor(p)};font-weight:700">${dt}</span>`:""}</p></div>`;
-}).join(""):`<div class="card"><p class="sub" style="margin:0">${L.empty}</p></div>`);
+return `<div class="card" onclick="finGo('p:${p.id}','${p.kind}')"><div class="it"><b style="font-size:18px">${esc(p.name)}</b><b style="font-size:20px;color:${b>0?(p.kind==="owe"?"var(--red)":"var(--grape)"):"var(--green)"}">${b>0?naira(b):"Settled ✅"}</b></div><p class="small" style="margin:0">${esc(p.tag||"")}${dt?` · <span style="color:${dueColor(p)};font-weight:700">${dt}</span>`:""}</p></div>`;
+}
+function financeHome(){
+if(fin.page.startsWith("p:"))return personPage(fin.page.slice(2));
+const L=LK[fin.tab],all=ledger().filter(p=>p.kind===fin.tab);
+const act=all.filter(p=>balOf(p)>0).sort((a,b)=>{const da=a.due?daysTo(a.due):9999,db=b.due?daysTo(b.due):9999;return da-db||balOf(b)-balOf(a)});
+const done=all.filter(p=>balOf(p)<=0);
+return `<h1>💼 Finance</h1>
+<div class="kpi"><button class="kc" onclick="finGo('home','owe')"><span>🏭 I owe</span><b style="color:var(--red)">${naira(totalBal("owe"))}</b><span>${activeCount("owe")} active</span></button><button class="kc" onclick="finGo('home','owed')"><span>🤝 Owed to me</span><b>${naira(totalBal("owed"))}</b><span>${activeCount("owed")} active</span></button></div>
+${remindCard()}
+<div class="seg"><button class="${fin.tab==="owe"?"on":""}" onclick="finGo('home','owe')">I owe</button><button class="${fin.tab==="owed"?"on":""}" onclick="finGo('home','owed')">Owed to me</button></div>
+<button class="btn green" onclick="personForm('${fin.tab}')">${L.add}</button><div class="gap"></div>
+<h1 style="font-size:22px">Active</h1>${act.length?act.map(personCard).join(""):`<div class="card"><p class="sub" style="margin:0">${L.empty}</p></div>`}
+${done.length?`<button class="btn sm ghost" onclick="fin.settled=!fin.settled;render()">${fin.settled?"Hide":"Show"} settled (${done.length})</button><div class="gap"></div>${fin.settled?done.map(personCard).join(""):""}`:""}`;
 }
 function personPage(id){
 const p=ledger().find(x=>x.id===id);
-if(!p){vault.page="home";return vaultMain()}
+if(!p){fin.page="home";return financeHome()}
 const L=LK[p.kind],b=balOf(p),dt=dueText(p);
 let run=0;
 const rows=p.entries.map(e=>{run+=e.type==="charge"?e.amount:-e.amount;return{e,run:Math.round(run*100)/100}}).reverse().map(({e,run})=>{
 const when=new Date(e.date).toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"});
 return `<div class="it" onclick="delEntry('${p.id}','${e.id}')"><span><b>${e.type==="charge"?L.chargeName:L.payName}</b>${e.note?" · "+esc(e.note):""}<br><span class="small">${when} · balance ${naira(run)}</span></span><b style="color:${e.type==="charge"?"var(--grape)":"var(--green)"}">${e.type==="charge"?"+":"-"}${naira(e.amount)}</b></div>`;
 }).join("");
-return `<button class="btn sm ghost" onclick="vaultGo('${p.kind}')">← Back</button><div class="gap"></div><h1>${esc(p.name)}</h1><p class="sub">${esc(p.tag||"")}${p.note?" · "+esc(p.note):""}</p>
+return `<button class="btn sm ghost" onclick="finGo('home','${p.kind}')">← Back to Finance</button><div class="gap"></div><h1>${esc(p.name)}</h1><p class="sub">${esc(p.tag||"")}${p.note?" · "+esc(p.note):""}</p>
 <div class="card" style="background:linear-gradient(135deg,#4A2370,#6b3a9a);color:#fff"><b>${L.balL}</b><div style="font-size:36px;font-weight:900">${naira(b)}</div>${dt?`<span style="opacity:.95;font-weight:700">${dt}</span>`:(p.due&&b>0?`<span style="opacity:.9">Due ${p.due}</span>`:"")}</div>
 <div class="stat"><div class="card"><span class="small">${L.totalL}</span><br><b>${naira(entTotal(p,"charge"))}</b></div><div class="card"><span class="small">${L.paidL}</span><br><b>${naira(entTotal(p,"pay"))}</b></div></div>
 <button class="btn green" onclick="entryForm('${p.id}','charge')">${L.charge}</button><div class="gap"></div>
@@ -198,7 +306,7 @@ if($("#pf_due").value==="Pick a date"&&!due)return toast("Please pick the date")
 const p={id:DB.id(),kind:k,name,tag:$("#pf_tag").value,note:$("#pf_note").value.trim(),due,entries:[]};
 if(amt>0)p.entries.push({id:DB.id(),type:"charge",amount:amt,date:new Date().toISOString(),note:""});
 const l=ledger();l.push(p);saveLedger(l);
-vault.page="p:"+p.id;toast("Saved");render();
+fin.tab=k;fin.page="p:"+p.id;toast("Saved");render();
 }
 function entryForm(id,type){
 const p=ledger().find(x=>x.id===id),L=LK[p.kind],pay=type==="pay";
@@ -233,14 +341,5 @@ function delPerson(id){
 const p=ledger().find(x=>x.id===id);
 sheet(`<h1>Delete ${esc(p.name)}?</h1><p class="sub">All their records will be removed. This cannot be undone.</p><button class="btn red" onclick="doDelPerson('${id}')">Yes, delete</button><div class="gap"></div><button class="btn ghost" onclick="closeSheet()">Cancel</button>`);
 }
-function doDelPerson(id){const k=ledger().find(x=>x.id===id).kind;saveLedger(ledger().filter(x=>x.id!==id));vault.page=k;toast("Deleted");render()}
-
-/* ---------- Reminders on the Dashboard (count only) and when the app opens ---------- */
-const _dash0=screens.dash;
-screens.dash=()=>{
-let h=_dash0();
-const n=remindItems().length;
-if(isOwner()&&n)h+=`<div class="card" style="border:2px solid #f59e0b;background:#fffbeb"><b>⏰ ${n} payment reminder${n>1?"s":""}</b><p class="sub" style="margin:0 0 10px">Open your Vault to see who to pay or collect from.</p><button class="btn sm ghost" onclick="go('vault')">Open Vault</button></div>`;
-return h;
-};
-setTimeout(()=>{const n=remindItems().length;if(n&&isOwner())toast(n+" payment reminder"+(n>1?"s":"")+" in your Vault")},900);
+function doDelPerson(id){const k=ledger().find(x=>x.id===id).kind;saveLedger(ledger().filter(x=>x.id!==id));fin.tab=k;fin.page="home";toast("Deleted");render()}
+setTimeout(()=>{const n=remindItems().length;if(n&&isOwner())toast(n+" payment reminder"+(n>1?"s":"")+" in Finance")},900);
